@@ -52,7 +52,7 @@ def initialize_database():
         feed_id int REFERENCES feed(id) ON DELETE CASCADE,
         feed_rank int NOT NULL,
         level int NOT NULL,
-        parent int NOT NULL,
+        parent_comments text [] NOT NULL,
         post_id int REFERENCES post(id) ON DELETE CASCADE,
         username text NOT NULL);
         """
