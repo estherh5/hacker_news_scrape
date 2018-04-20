@@ -167,15 +167,15 @@ def scrape():
                 # Get UTC timestamp for comment's posting time by subtracting
                 # the number of hours/minutes ago given on the webpage from the
                 # current UTC timestamp
-                comment_time_unit = subtext_row.find(
+                comment_time_unit = comment_row.find(
                     'span', 'age').a.get_text().split()[1]
 
                 if comment_time_unit == 'hours':
-                    comment_created = now - 3600 * int(subtext_row.find(
+                    comment_created = now - 3600 * int(comment_row.find(
                         'span', 'age').a.get_text().split()[0])
 
                 else:
-                    comment_created = now - 60 * int(subtext_row.find(
+                    comment_created = now - 60 * int(comment_row.find(
                         'span', 'age').a.get_text().split()[0])
 
                 comment_created = time.strftime(
@@ -189,24 +189,26 @@ def scrape():
                 level = int(comment_row.find(
                     'td', 'ind').contents[0].get('width')) / 40
 
-                # Set comment as parent if it is the top-level comment
+                # Set parent comment list as blank if comment is the top-level
+                # comment
                 if level == 0:
-                    parent = comment_id
+                    parent_comments = []
 
                 # Get username of user who posted comment
                 try:
-                    comment_username = comment_row.find('a', 'hnuser').get_text()
+                    comment_username = comment_row.find(
+                        'a', 'hnuser').get_text()
                 except:
-                    comment_username = ""
+                    comment_username = ''
 
                 # Add scraped comment data to database
                 cursor.execute(
                     """
                     INSERT INTO comment (post_id, comment_id, content, created,
-                    feed_id, feed_rank, level, parent, username)
+                    feed_id, feed_rank, level, parent_comments, username)
                     VALUES (%(post_id)s, %(comment_id)s, %(content)s,
                     %(created)s, %(feed_id)s, %(feed_rank)s, %(level)s,
-                    %(parent)s, %(username)s);
+                    %(parent_comments)s, %(username)s);
                     """,
                     {'post_id': post_primary_id,
                     'comment_id': comment_id,
@@ -215,9 +217,12 @@ def scrape():
                     'feed_id': feed_id,
                     'feed_rank': comment_feed_rank,
                     'level': level,
-                    'parent': parent,
+                    'parent_comments': parent_comments,
                     'username': comment_username}
                     )
+
+                # Add comment to parent list for the next comment
+                parent_comments.append(comment_id)
 
     conn.commit()
 
