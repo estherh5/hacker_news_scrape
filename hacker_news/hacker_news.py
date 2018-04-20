@@ -194,7 +194,10 @@ def scrape():
                     parent = comment_id
 
                 # Get username of user who posted comment
-                comment_username = comment_row.find('a', 'hnuser').get_text()
+                try:
+                    comment_username = comment_row.find('a', 'hnuser').get_text()
+                except:
+                    comment_username = ""
 
                 # Add scraped comment data to database
                 cursor.execute(
