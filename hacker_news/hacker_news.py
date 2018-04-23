@@ -18,8 +18,9 @@ def scrape():
     # Add feed to database
     cursor.execute(
         """
-        INSERT INTO feed DEFAULT VALUES
-        RETURNING id;
+           INSERT INTO feed
+        DEFAULT VALUES
+             RETURNING id;
         """
         )
 
@@ -27,6 +28,8 @@ def scrape():
 
     # Get data from first 3 feed pages of Hacker News
     for i in range(1, 4):
+        print('Scraped initiated for page ' + str(i) + ' of Hacker News.')
+
         # Current UTC time in seconds
         now = int(datetime.utcnow().strftime('%s'))
 
@@ -62,10 +65,7 @@ def scrape():
                     'span', 'age').a.get_text().split()[0])
 
             created = time.strftime(
-                '%Y-%m-%d %H:%M:%S', time.localtime(created))
-
-            # Get post's rank on feed page
-            feed_rank = post_row.find('span', 'rank').get_text()[:-1]
+                '%Y-%m-%d %H:%M', time.localtime(created))
 
             # Get post's link
             link = post_row.find('a', 'storylink').get('href')
@@ -80,15 +80,6 @@ def scrape():
                 type = 'ask'
             else:
                 type = 'article'
-
-            # Get post's score if it is listed (otherwise, post is job
-            # posting)
-            if subtext_row.find('span', 'score'):
-                point_count = subtext_row.find(
-                    'span', 'score').get_text().split()[0]
-            else:
-                point_count = 0
-                type = 'job'
 
             # Get username of user who posted post or set as blank for job
             # posting
@@ -106,27 +97,46 @@ def scrape():
             # Add post data to database
             cursor.execute(
                 """
-                INSERT INTO post (post_id, created, feed_id, feed_rank, link,
-                point_count, title, type, username, website)
-                VALUES (%(post_id)s, %(created)s, %(feed_id)s, %(feed_rank)s,
-                %(link)s, %(point_count)s, %(title)s, %(type)s, %(username)s,
-                %(website)s)
-                RETURNING id;
+                INSERT INTO post
+                            (id, created, link, title, type, username, website)
+                     VALUES (%(id)s, %(created)s, %(link)s, %(title)s,
+                            %(type)s, %(username)s, %(website)s)
+                ON CONFLICT (id) DO NOTHING;
                 """,
-                {'post_id': post_id,
+                {'id': post_id,
                 'created': created,
-                'feed_id': feed_id,
-                'feed_rank': feed_rank,
                 'link': link,
-                'point_count': point_count,
                 'title': title,
                 'type': type,
                 'username': username,
                 'website': website}
                 )
 
-            # Serial identifier for post in database
-            post_primary_id = cursor.fetchone()[0]
+            # Get post's rank on feed page
+            feed_rank = post_row.find('span', 'rank').get_text()[:-1]
+
+            # Get post's score if it is listed (otherwise, post is job
+            # posting)
+            if subtext_row.find('span', 'score'):
+                point_count = subtext_row.find(
+                    'span', 'score').get_text().split()[0]
+            else:
+                point_count = 0
+                type = 'job'
+
+            # Add feed-based post data to database
+            cursor.execute(
+                """
+                INSERT INTO feed_post
+                            (feed_id, feed_rank, point_count, post_id)
+                     VALUES (%(feed_id)s, %(feed_rank)s, %(point_count)s,
+                            %(post_id)s);
+                """,
+                {'feed_id': feed_id,
+                'feed_rank': feed_rank,
+                'point_count': point_count,
+                'post_id': post_id}
+                )
 
             # Current UTC time in seconds
             now = int(datetime.utcnow().strftime('%s'))
@@ -179,20 +189,36 @@ def scrape():
                         'span', 'age').a.get_text().split()[0])
 
                 comment_created = time.strftime(
-                    '%Y-%m-%d %H:%M:%S', time.localtime(comment_created))
-
-                # Increment comment feed rank to get current comment's rank
-                comment_feed_rank += 1
+                    '%Y-%m-%d %H:%M', time.localtime(comment_created))
 
                 # Get comment's level in tree by getting indentation width
                 # value divided by value of one indent (40px)
                 level = int(comment_row.find(
                     'td', 'ind').contents[0].get('width')) / 40
 
-                # Set parent comment list as blank if comment is the top-level
+                # Set parent comment as blank if comment is the top-level
                 # comment
                 if level == 0:
-                    parent_comments = []
+                    parent_comment = None
+
+                # Otherwise, get preceding comment in comment tree
+                else:
+                    cursor.execute(
+                        """
+                          SELECT id
+                            FROM comment
+                            JOIN feed_comment
+                              ON feed_comment.comment_id = comment.id
+                           WHERE level = %(level)s
+                             AND feed_id = %(feed_id)s
+                        ORDER BY feed_rank
+                           LIMIT 1;
+                        """,
+                        {'level': level - 1,
+                        'feed_id': feed_id}
+                    )
+
+                    parent_comment = cursor.fetchone()[0]
 
                 # Get username of user who posted comment
                 try:
@@ -204,25 +230,38 @@ def scrape():
                 # Add scraped comment data to database
                 cursor.execute(
                     """
-                    INSERT INTO comment (post_id, comment_id, content, created,
-                    feed_id, feed_rank, level, parent_comments, username)
-                    VALUES (%(post_id)s, %(comment_id)s, %(content)s,
-                    %(created)s, %(feed_id)s, %(feed_rank)s, %(level)s,
-                    %(parent_comments)s, %(username)s);
+                    INSERT INTO comment
+                                (id, content, created, level, parent_comment,
+                                post_id, username)
+                         VALUES (%(id)s, %(content)s, %(created)s, %(level)s,
+                                %(parent_comment)s, %(post_id)s, %(username)s)
+                    ON CONFLICT (id) DO NOTHING;
                     """,
-                    {'post_id': post_primary_id,
-                    'comment_id': comment_id,
+                    {'id': comment_id,
                     'content': comment_content,
                     'created': comment_created,
-                    'feed_id': feed_id,
-                    'feed_rank': comment_feed_rank,
                     'level': level,
-                    'parent_comments': parent_comments,
+                    'parent_comment': parent_comment,
+                    'post_id': post_id,
                     'username': comment_username}
                     )
 
-                # Add comment to parent list for the next comment
-                parent_comments.append(comment_id)
+                # Increment comment feed rank to get current comment's rank
+                comment_feed_rank += 1
+
+                # Add feed-based comment data to database
+                cursor.execute(
+                    """
+                    INSERT INTO feed_comment
+                                (comment_id, feed_id, feed_rank)
+                         VALUES (%(comment_id)s, %(feed_id)s, %(feed_rank)s);
+                    """,
+                    {'comment_id': comment_id,
+                    'feed_id': feed_id,
+                    'feed_rank': feed_rank}
+                    )
+
+        print('Successfully scraped page ' + str(i) + ' of Hacker News.')
 
     conn.commit()
 
