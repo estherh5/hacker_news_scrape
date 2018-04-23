@@ -20,41 +20,56 @@ def initialize_database():
         """
         DO $$
         BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'post_type')
-                THEN CREATE TYPE post_type
-                AS ENUM ('article', 'ask', 'job', 'show');
+            IF NOT EXISTS
+                          (SELECT 1
+                             FROM pg_type
+                            WHERE typname = 'post_type')
+                     THEN CREATE TYPE post_type
+                       AS ENUM ('article', 'ask', 'job', 'show');
             END IF;
         END
         $$;
 
         CREATE TABLE IF NOT EXISTS feed (
-        id SERIAL PRIMARY KEY,
-        created timestamp NOT NULL DEFAULT (now() at time zone 'utc'));
+            PRIMARY KEY (id),
+            created TIMESTAMP DEFAULT (now() at time zone 'utc') NOT NULL,
+            id      SERIAL    NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS post (
-        id SERIAL PRIMARY KEY,
-        created timestamp NOT NULL,
-        feed_id int REFERENCES feed(id) ON DELETE CASCADE,
-        feed_rank int NOT NULL,
-        link text NOT NULL,
-        point_count int NOT NULL DEFAULT 0,
-        post_id int NOT NULL,
-        title text NOT NULL,
-        type post_type NOT NULL,
-        username text,
-        website text);
+            PRIMARY KEY (id),
+            created  TIMESTAMP NOT NULL,
+            id       INT       NOT NULL,
+            link     TEXT      NOT NULL,
+            title    TEXT      NOT NULL,
+            type     POST_TYPE NOT NULL,
+            username TEXT,
+            website  TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS feed_post (
+            feed_id     INT REFERENCES feed(id) ON DELETE CASCADE,
+            feed_rank   INT NOT NULL,
+            point_count INT DEFAULT 0           NOT NULL,
+            post_id     INT REFERENCES post(id) ON DELETE CASCADE
+        );
 
         CREATE TABLE IF NOT EXISTS comment (
-        id SERIAL PRIMARY KEY,
-        comment_id int NOT NULL,
-        content text NOT NULL,
-        created timestamp NOT NULL,
-        feed_id int REFERENCES feed(id) ON DELETE CASCADE,
-        feed_rank int NOT NULL,
-        level int NOT NULL,
-        parent_comments text [] NOT NULL,
-        post_id int REFERENCES post(id) ON DELETE CASCADE,
-        username text NOT NULL);
+            PRIMARY KEY (id),
+            content        TEXT      NOT NULL,
+            created        TIMESTAMP NOT NULL,
+            id             INT       NOT NULL,
+            level          INT       NOT NULL,
+            parent_comment INT       REFERENCES comment(id) ON DELETE CASCADE,
+            post_id        INT       REFERENCES post(id)    ON DELETE CASCADE,
+            username       TEXT      NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS feed_comment (
+            comment_id INT REFERENCES comment(id) ON DELETE CASCADE,
+            feed_id    INT REFERENCES feed(id)    ON DELETE CASCADE,
+            feed_rank  INT NOT NULL
+        );
         """
         )
 
