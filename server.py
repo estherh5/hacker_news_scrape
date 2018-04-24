@@ -79,9 +79,10 @@ def highest_word_count(time_period):
     methods=['GET'])
 def comment_word(time_period):
     # Retrieve highest-frequency word used in comments from specified Hacker
-    # News scrapes ('hour', 'day', 'week', 'all')
+    # News scrapes ('hour', 'day', 'week', 'all'); optional count query param
+    # specifies number of highest-frequency words to return
     if request.method == 'GET':
-        return hacker_news.get_most_frequent_comment_word(
+        return hacker_news.get_most_frequent_comment_words(
             hacker_news.get_feeds(time_period))
 
 

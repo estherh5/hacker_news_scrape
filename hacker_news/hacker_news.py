@@ -7,7 +7,7 @@ import time
 
 from bs4 import BeautifulSoup
 from datetime import datetime
-from flask import make_response, jsonify
+from flask import jsonify, make_response, request
 
 
 def scrape_loop():
@@ -596,13 +596,17 @@ def get_comment_highest_word_count(feed_ids):
     return jsonify(comment)
 
 
-def get_most_frequent_comment_word(feed_ids):
+def get_most_frequent_comment_words(feed_ids):
+    # Get number of requested words from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get highest-frequency word used in comments
+    # Get highest-frequency words used in comments
     cursor.execute(
         """
           SELECT word, COUNT(*) AS word_frequency
@@ -615,17 +619,21 @@ def get_most_frequent_comment_word(feed_ids):
             ) word_table
         GROUP BY word
         ORDER BY word_frequency DESC
-        LIMIT 1;
+        LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    word = dict(cursor.fetchone())
+    words = []
+
+    for row in cursor.fetchall():
+        words.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(word)
+    return jsonify(words)
 
 
 def get_deepest_comment_tree(feed_ids):
