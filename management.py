@@ -115,4 +115,4 @@ if args.action == 'init_db':
 if args.action == 'sched_scrape':
     schedule_hourly_scrape()
 if args.action == 'scrape_hn':
-    hacker_news.scrape()
+    hacker_news.scrape_loop()
