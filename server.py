@@ -69,9 +69,10 @@ def average_point_count(time_period):
     methods=['GET'])
 def highest_word_count(time_period):
     # Retrieve comment with highest word count from specified Hacker News
-    # scrapes ('hour', 'day', 'week', 'all')
+    # scrapes ('hour', 'day', 'week', 'all'); optional count query param
+    # specifies number of comments to return
     if request.method == 'GET':
-        return hacker_news.get_comment_highest_word_count(
+        return hacker_news.get_comments_with_highest_word_counts(
             hacker_news.get_feeds(time_period))
 
 
@@ -100,9 +101,10 @@ def deepest_comment_tree(time_period):
     methods=['GET'])
 def highest_comment_count(time_period):
     # Retrieve post with highest comment count from specified Hacker News
-    # scrapes ('hour', 'day', 'week', 'all')
+    # scrapes ('hour', 'day', 'week', 'all'); optional count query param
+    # specifies number of posts to return
     if request.method == 'GET':
-        return hacker_news.get_highest_comment_count(
+        return hacker_news.get_posts_with_highest_comment_counts(
             hacker_news.get_feeds(time_period))
 
 
@@ -110,10 +112,11 @@ def highest_comment_count(time_period):
     methods=['GET'])
 def highest_point_count(time_period):
     # Retrieve post with highest point count from specified Hacker News
-    # scrapes ('hour', 'day', 'week', 'all')
+    # scrapes ('hour', 'day', 'week', 'all'); optional count query param
+    # specifies number of posts to return
     if request.method == 'GET':
-        return hacker_news.get_highest_point_count(hacker_news.get_feeds(
-            time_period))
+        return hacker_news.get_posts_with_highest_point_counts(
+            hacker_news.get_feeds(time_period))
 
 
 @app.route('/api/hacker_news/stats/<time_period>/post_types',
@@ -129,38 +132,40 @@ def post_types(time_period):
     methods=['GET'])
 def title_word(time_period):
     # Retrieve highest-frequency word used in post titles from specified
-    # Hacker News scrapes ('hour', 'day', 'week', 'all')
+    # Hacker News scrapes ('hour', 'day', 'week', 'all'); optional count query
+    # param specifies number of words to return
     if request.method == 'GET':
-        return hacker_news.get_most_frequent_title_word(
+        return hacker_news.get_most_frequent_title_words(
             hacker_news.get_feeds(time_period))
 
 
-@app.route('/api/hacker_news/stats/<time_period>/top_five_posts',
-    methods=['GET'])
-def top_five_posts(time_period):
-    # Retrieve top five ranked posts from specified Hacker News scrapes
-    # ('hour', 'day', 'week', 'all')
+@app.route('/api/hacker_news/stats/<time_period>/top_posts', methods=['GET'])
+def top_posts(time_period):
+    # Retrieve top ranked posts from specified Hacker News scrapes ('hour',
+    # 'day', 'week', 'all'); optional count query param specifies number of
+    # posts to return
     if request.method == 'GET':
-        return hacker_news.get_top_five_posts(hacker_news.get_feeds(
-            time_period))
+        return hacker_news.get_top_posts(hacker_news.get_feeds(time_period))
 
 
 @app.route('/api/hacker_news/stats/<time_period>/top_website',
     methods=['GET'])
 def top_website(time_period):
     # Retrieve top website that posts were posted from from specified Hacker
-    # News scrapes ('hour', 'day', 'week', 'all')
+    # News scrapes ('hour', 'day', 'week', 'all'); optional count query param
+    # specifies number of websites to return
     if request.method == 'GET':
-        return hacker_news.get_top_website(hacker_news.get_feeds(time_period))
+        return hacker_news.get_top_websites(hacker_news.get_feeds(time_period))
 
 
 @app.route('/api/hacker_news/stats/<time_period>/user_most_comments',
     methods=['GET'])
 def user_most_comments(time_period):
     # Retrieve user with most comments from specified Hacker News scrapes
-    # ('hour', 'day', 'week', 'all')
+    # ('hour', 'day', 'week', 'all'); optional count query param specifies
+    # number of users to return
     if request.method == 'GET':
-        return hacker_news.get_user_with_most_comments(
+        return hacker_news.get_users_with_most_comments(
             hacker_news.get_feeds(time_period))
 
 
@@ -168,9 +173,10 @@ def user_most_comments(time_period):
     methods=['GET'])
 def user_most_posts(time_period):
     # Retrieve user with most posts from specified Hacker News scrapes
-    # ('hour', 'day', 'week', 'all')
+    # ('hour', 'day', 'week', 'all'); optional count query param specifies
+    # number of users to return
     if request.method == 'GET':
-        return hacker_news.get_user_with_most_posts(
+        return hacker_news.get_users_with_most_posts(
             hacker_news.get_feeds(time_period))
 
 
@@ -178,7 +184,8 @@ def user_most_posts(time_period):
     methods=['GET'])
 def user_most_words(time_period):
     # Retrieve user with most words in comments from specified Hacker News
-    # scrapes ('hour', 'day', 'week', 'all')
+    # scrapes ('hour', 'day', 'week', 'all'); optional count query param
+    # specifies number of users to return
     if request.method == 'GET':
-        return hacker_news.get_user_with_most_words_in_comments(
+        return hacker_news.get_users_with_most_words_in_comments(
             hacker_news.get_feeds(time_period))
