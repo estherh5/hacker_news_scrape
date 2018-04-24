@@ -564,13 +564,17 @@ def get_average_point_count(feed_ids):
     return jsonify(average)
 
 
-def get_comment_highest_word_count(feed_ids):
+def get_comments_with_highest_word_counts(feed_ids):
+    # Get number of requested comments from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get comment with highest word count
+    # Get comments with highest word counts
     cursor.execute(
         """
           SELECT comment.content, comment.created, comment.id, comment.level,
@@ -583,17 +587,21 @@ def get_comment_highest_word_count(feed_ids):
                    ON feed_comment.comment_id = comment.id
            WHERE feed_id = ANY(%(feed_id)s)
         ORDER BY word_count DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    comment = dict(cursor.fetchone())
+    comments = []
+
+    for row in cursor.fetchall():
+        comments.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(comment)
+    return jsonify(comments)
 
 
 def get_most_frequent_comment_words(feed_ids):
@@ -683,13 +691,17 @@ def get_deepest_comment_tree(feed_ids):
     return jsonify(comment)
 
 
-def get_highest_comment_count(feed_ids):
+def get_posts_with_highest_comment_counts(feed_ids):
+    # Get number of requested posts from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get post with highest comment count
+    # Get posts with highest comment counts
     cursor.execute(
         """
           SELECT post.created, post.id, post.link, post.title, post.type,
@@ -703,26 +715,34 @@ def get_highest_comment_count(feed_ids):
                    ON feed_post.post_id = post.id
            WHERE feed_id = ANY(%(feed_id)s)
         ORDER BY comment_count DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    post = dict(cursor.fetchone())
+    posts = []
+
+    for row in cursor.fetchall():
+        posts.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(post)
+    return jsonify(posts)
 
 
-def get_highest_point_count(feed_ids):
+def get_posts_with_highest_point_counts(feed_ids):
+    # Get number of requested posts from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get post with highest point count
+    # Get posts with highest point counts
     cursor.execute(
         """
           SELECT post.created, post.id, post.link, post.title, post.type,
@@ -736,17 +756,21 @@ def get_highest_point_count(feed_ids):
                    ON feed_post.post_id = post.id
            WHERE feed_id = ANY(%(feed_id)s)
         ORDER BY point_count DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    post = dict(cursor.fetchone())
+    posts = []
+
+    for row in cursor.fetchall():
+        posts.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(post)
+    return jsonify(posts)
 
 
 def get_post_types(feed_ids):
@@ -780,13 +804,17 @@ def get_post_types(feed_ids):
     return jsonify(types)
 
 
-def get_most_frequent_title_word(feed_ids):
+def get_most_frequent_title_words(feed_ids):
+    # Get number of requested words from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get highest-frequency word used in post titles
+    # Get highest-frequency words used in post titles
     cursor.execute(
         """
           SELECT word, COUNT(*) AS word_frequency
@@ -799,26 +827,34 @@ def get_most_frequent_title_word(feed_ids):
             ) word_table
         GROUP BY word
         ORDER BY word_frequency DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    word = dict(cursor.fetchone())
+    words = []
+
+    for row in cursor.fetchall():
+        words.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(word)
+    return jsonify(words)
 
 
-def get_top_five_posts(feed_ids):
+def get_top_posts(feed_ids):
+    # Get number of requested posts from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 3))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get top 5 posts in order of rank
+    # Get posts in order of rank
     cursor.execute(
         """
           SELECT post.created, post.id, post.link, post.title, post.type,
@@ -832,9 +868,10 @@ def get_top_five_posts(feed_ids):
                    ON feed_post.post_id = post.id
            WHERE feed_id = ANY(%(feed_id)s)
         ORDER BY feed_rank
-           LIMIT 5;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
     posts = []
@@ -848,13 +885,17 @@ def get_top_five_posts(feed_ids):
     return jsonify(posts)
 
 
-def get_top_website(feed_ids):
+def get_top_websites(feed_ids):
+    # Get number of requested websites from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get website that highest number of posts are posted from
+    # Get websites that highest number of posts are from
     cursor.execute(
         """
           SELECT website, COUNT(*) AS link_count
@@ -865,26 +906,34 @@ def get_top_website(feed_ids):
                  AND website != ''
         GROUP BY website
         ORDER BY link_count DESC
-        LIMIT 1;
+        LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    website = dict(cursor.fetchone())
+    websites = []
+
+    for row in cursor.fetchall():
+        websites.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(website)
+    return jsonify(websites)
 
 
-def get_user_with_most_comments(feed_ids):
+def get_users_with_most_comments(feed_ids):
+    # Get number of requested users from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get user who posted the most comments
+    # Get users who posted the most comments
     cursor.execute(
         """
           SELECT username, COUNT(username) AS comment_count
@@ -894,26 +943,34 @@ def get_user_with_most_comments(feed_ids):
            WHERE feed_id = ANY(%(feed_id)s)
         GROUP BY username
         ORDER BY comment_count DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    username = dict(cursor.fetchone())
+    usernames = []
+
+    for row in cursor.fetchall():
+        usernames.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(username)
+    return jsonify(usernames)
 
 
-def get_user_with_most_posts(feed_ids):
+def get_users_with_most_posts(feed_ids):
+    # Get number of requested users from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get user who posted the most posts
+    # Get users who posted the most posts
     cursor.execute(
         """
           SELECT username, COUNT(username) AS post_count
@@ -924,26 +981,34 @@ def get_user_with_most_posts(feed_ids):
                  AND username != ''
         GROUP BY username
         ORDER BY post_count DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    username = dict(cursor.fetchone())
+    usernames = []
+
+    for row in cursor.fetchall():
+        usernames.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(username)
+    return jsonify(usernames)
 
 
-def get_user_with_most_words_in_comments(feed_ids):
+def get_users_with_most_words_in_comments(feed_ids):
+    # Get number of requested users from query parameter, using default if
+    # null
+    count = int(request.args.get('count', 1))
+
     # Set up database connection wtih environment variable
     conn = pg.connect(os.environ['DB_CONNECTION'])
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get user who posted the most words in comments
+    # Get users who posted the most words in comments
     cursor.execute(
         """
           SELECT username,
@@ -955,14 +1020,18 @@ def get_user_with_most_words_in_comments(feed_ids):
            WHERE feed_id = ANY(%(feed_id)s)
         GROUP BY username
         ORDER BY word_count DESC
-           LIMIT 1;
+           LIMIT %(count)s;
         """,
-        {'feed_id': feed_ids}
+        {'feed_id': feed_ids,
+        'count': count}
         )
 
-    username = dict(cursor.fetchone())
+    usernames = []
+
+    for row in cursor.fetchall():
+        usernames.append(dict(row))
 
     cursor.close()
     conn.close()
 
-    return jsonify(username)
+    return jsonify(usernames)
