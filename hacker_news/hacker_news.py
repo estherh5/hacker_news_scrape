@@ -81,66 +81,79 @@ async def scrape_page(page, feed_id, loop):
         # Get post id
         post_id = post_row.get('id')
 
-        # Get UTC timestamp for post's posting time by subtracting the
-        # number of hours/minutes ago given on the webpage from the current
-        # UTC timestamp
-        time_unit = subtext_row.find('span', 'age').a.get_text().split()[1]
-
-        if time_unit == 'hours':
-            created = now - 3600 * int(subtext_row.find(
-                'span', 'age').a.get_text().split()[0])
-
-        else:
-            created = now - 60 * int(subtext_row.find(
-                'span', 'age').a.get_text().split()[0])
-
-        created = time.strftime(
-            '%Y-%m-%d %H:%M', time.localtime(created))
-
-        # Get post's link
-        link = post_row.find('a', 'storylink').get('href')
-
-        # Get post's title
-        title = post_row.find('a', 'storylink').get_text()
-
-        # Set post's type based on title
-        if 'Show HN:' in title:
-            type = 'show'
-        elif 'Ask HN:' in title:
-            type = 'ask'
-        else:
-            type = 'article'
-
-        # Get username of user who posted post or set as blank for job
-        # posting
-        if subtext_row.find('a', 'hnuser'):
-            username = subtext_row.find('a', 'hnuser').get_text()
-        else:
-            username = ''
-
-        # Get website that post is from or set as blank for ask posting
-        if post_row.find('span', 'sitestr'):
-            website = post_row.find('span', 'sitestr').get_text()
-        else:
-            website = ''
-
-        # Add post data to database
+        # Check if post already exists in database
         cursor.execute(
             """
-            INSERT INTO post
-                        (id, created, link, title, type, username, website)
-                 VALUES (%(id)s, %(created)s, %(link)s, %(title)s,
-                        %(type)s, %(username)s, %(website)s)
-            ON CONFLICT (id) DO NOTHING;
+            SELECT exists (
+                           SELECT 1
+                             FROM post
+                            WHERE id = %(id)s
+                            LIMIT 1);
             """,
-            {'id': post_id,
-            'created': created,
-            'link': link,
-            'title': title,
-            'type': type,
-            'username': username,
-            'website': website}
+            {'id': post_id}
             )
+
+        # Get core post data if it is not in database already
+        if not cursor.fetchone()[0]:
+            # Get UTC timestamp for post's posting time by subtracting the
+            # number of hours/minutes ago given on the webpage from the current
+            # UTC timestamp
+            time_unit = subtext_row.find('span', 'age').a.get_text().split()[1]
+
+            if time_unit == 'hours':
+                created = now - 3600 * int(subtext_row.find(
+                    'span', 'age').a.get_text().split()[0])
+
+            else:
+                created = now - 60 * int(subtext_row.find(
+                    'span', 'age').a.get_text().split()[0])
+
+            created = time.strftime(
+                '%Y-%m-%d %H:%M', time.localtime(created))
+
+            # Get post's link
+            link = post_row.find('a', 'storylink').get('href')
+
+            # Get post's title
+            title = post_row.find('a', 'storylink').get_text()
+
+            # Set post's type based on title
+            if 'Show HN:' in title:
+                type = 'show'
+            elif 'Ask HN:' in title:
+                type = 'ask'
+            else:
+                type = 'article'
+
+            # Get username of user who posted post or set as blank for job
+            # posting
+            if subtext_row.find('a', 'hnuser'):
+                username = subtext_row.find('a', 'hnuser').get_text()
+            else:
+                username = ''
+
+            # Get website that post is from or set as blank for ask posting
+            if post_row.find('span', 'sitestr'):
+                website = post_row.find('span', 'sitestr').get_text()
+            else:
+                website = ''
+
+            # Add post data to database
+            cursor.execute(
+                """
+                INSERT INTO post
+                            (id, created, link, title, type, username, website)
+                     VALUES (%(id)s, %(created)s, %(link)s, %(title)s,
+                            %(type)s, %(username)s, %(website)s);
+                """,
+                {'id': post_id,
+                'created': created,
+                'link': link,
+                'title': title,
+                'type': type,
+                'username': username,
+                'website': website}
+                )
 
         # Get post's rank on feed page
         feed_rank = post_row.find('span', 'rank').get_text()[:-1]
@@ -206,91 +219,104 @@ async def scrape_post(post_id, feed_id):
         # Get comment id
         comment_id = comment_row.get('id')
 
-        # If comment has content span, get text from span
-        if comment_row.find('div', 'comment').find_all('span'):
-            comment_content = comment_row.find(
-                'div', 'comment').find_all('span')[0].get_text()
-
-            # Remove the last word ('reply') from the comment content
-            # and strip trailing whitespace
-            comment_content = comment_content.rsplit(' ', 1)[0].strip()
-
-        # Otherwise, comment is flagged, so get flagged message as text
-        # and strip trailing whitespace
-        else:
-            comment_content = comment_row.find(
-                'div', 'comment').get_text().strip()
-
-        # Get UTC timestamp for comment's posting time by subtracting
-        # the number of hours/minutes ago given on the webpage from the
-        # current UTC timestamp
-        comment_time_unit = comment_row.find(
-            'span', 'age').a.get_text().split()[1]
-
-        if comment_time_unit == 'hours':
-            comment_created = now - 3600 * int(comment_row.find(
-                'span', 'age').a.get_text().split()[0])
-
-        else:
-            comment_created = now - 60 * int(comment_row.find(
-                'span', 'age').a.get_text().split()[0])
-
-        comment_created = time.strftime(
-            '%Y-%m-%d %H:%M', time.localtime(comment_created))
-
-        # Get comment's level in tree by getting indentation width
-        # value divided by value of one indent (40px)
-        level = int(comment_row.find(
-            'td', 'ind').contents[0].get('width')) / 40
-
-        # Set parent comment as blank if comment is the top-level
-        # comment
-        if level == 0:
-            parent_comment = None
-
-        # Otherwise, get preceding comment in comment tree
-        else:
-            cursor.execute(
-                """
-                  SELECT id
-                    FROM comment
-                         JOIN feed_comment
-                           ON feed_comment.comment_id = comment.id
-                   WHERE level = %(level)s
-                     AND feed_id = %(feed_id)s
-                ORDER BY feed_rank
-                   LIMIT 1;
-                """,
-                {'level': level - 1,
-                'feed_id': feed_id}
-            )
-
-            parent_comment = cursor.fetchone()[0]
-
-        # Get username of user who posted comment
-        try:
-            comment_username = comment_row.find('a', 'hnuser').get_text()
-        except AttributeError:
-            comment_username = ''
-
-        # Add scraped comment data to database
+        # Check if comment already exists in database
         cursor.execute(
             """
-            INSERT INTO comment
-                        (id, content, created, level, parent_comment,
-                        post_id, username)
-                 VALUES (%(id)s, %(content)s, %(created)s, %(level)s,
-                        %(parent_comment)s, %(post_id)s, %(username)s)
-            ON CONFLICT (id) DO NOTHING;
+            SELECT exists (
+                           SELECT 1
+                             FROM comment
+                            WHERE id = %(id)s
+                            LIMIT 1);
             """,
-            {'id': comment_id,
-            'content': comment_content,
-            'created': comment_created,
-            'level': level,
-            'parent_comment': parent_comment,
-            'post_id': post_id,
-            'username': comment_username}
+            {'id': comment_id}
             )
+
+        # Get core comment data if it is not in database already
+        if not cursor.fetchone()[0]:
+            # If comment has content span, get text from span
+            if comment_row.find('div', 'comment').find_all('span'):
+                comment_content = comment_row.find(
+                    'div', 'comment').find_all('span')[0].get_text()
+
+                # Remove the last word ('reply') from the comment content
+                # and strip trailing whitespace
+                comment_content = comment_content.rsplit(' ', 1)[0].strip()
+
+            # Otherwise, comment is flagged, so get flagged message as text
+            # and strip trailing whitespace
+            else:
+                comment_content = comment_row.find(
+                    'div', 'comment').get_text().strip()
+
+            # Get UTC timestamp for comment's posting time by subtracting
+            # the number of hours/minutes ago given on the webpage from the
+            # current UTC timestamp
+            comment_time_unit = comment_row.find(
+                'span', 'age').a.get_text().split()[1]
+
+            if comment_time_unit == 'hours':
+                comment_created = now - 3600 * int(comment_row.find(
+                    'span', 'age').a.get_text().split()[0])
+
+            else:
+                comment_created = now - 60 * int(comment_row.find(
+                    'span', 'age').a.get_text().split()[0])
+
+            comment_created = time.strftime(
+                '%Y-%m-%d %H:%M', time.localtime(comment_created))
+
+            # Get comment's level in tree by getting indentation width
+            # value divided by value of one indent (40px)
+            level = int(comment_row.find(
+                'td', 'ind').contents[0].get('width')) / 40
+
+            # Set parent comment as blank if comment is the top-level
+            # comment
+            if level == 0:
+                parent_comment = None
+
+            # Otherwise, get preceding comment in comment tree
+            else:
+                cursor.execute(
+                    """
+                      SELECT id
+                        FROM comment
+                             JOIN feed_comment
+                               ON feed_comment.comment_id = comment.id
+                       WHERE level = %(level)s
+                         AND feed_id = %(feed_id)s
+                    ORDER BY feed_rank
+                       LIMIT 1;
+                    """,
+                    {'level': level - 1,
+                    'feed_id': feed_id}
+                )
+
+                parent_comment = cursor.fetchone()[0]
+
+            # Get username of user who posted comment
+            try:
+                comment_username = comment_row.find('a', 'hnuser').get_text()
+            except AttributeError:
+                comment_username = ''
+
+            # Add scraped comment data to database
+            cursor.execute(
+                """
+                INSERT INTO comment
+                            (id, content, created, level, parent_comment,
+                            post_id, username)
+                     VALUES (%(id)s, %(content)s, %(created)s, %(level)s,
+                            %(parent_comment)s, %(post_id)s, %(username)s);
+                """,
+                {'id': comment_id,
+                'content': comment_content,
+                'created': comment_created,
+                'level': level,
+                'parent_comment': parent_comment,
+                'post_id': post_id,
+                'username': comment_username}
+                )
 
         # Increment comment feed rank to get current comment's rank
         comment_feed_rank += 1
@@ -312,7 +338,7 @@ async def scrape_post(post_id, feed_id):
     cursor.close()
     conn.close()
 
-    print('Post ' + str(post_id) + ' and its comments added to database')
+    print('Post ' + str(post_id) + ' and its comments scraped')
 
     return
 
