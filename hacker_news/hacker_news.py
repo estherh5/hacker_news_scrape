@@ -424,19 +424,7 @@ def get_feeds(time_period):
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
     # Get requested feed(s) from database based on passed time value
-    if time_period == 'hour':
-        cursor.execute(
-            """
-              SELECT id
-                FROM feed
-            ORDER BY id DESC
-               LIMIT 1;
-            """
-            )
-
-        feed_ids = [feed_id[0] for feed_id in cursor.fetchall()]
-
-    elif time_period == 'day':
+    if time_period == 'day':
         cursor.execute(
             """
               SELECT id
@@ -465,6 +453,18 @@ def get_feeds(time_period):
             """
               SELECT id
                 FROM feed;
+            """
+            )
+
+        feed_ids = [feed_id[0] for feed_id in cursor.fetchall()]
+
+    else:
+        cursor.execute(
+            """
+              SELECT id
+                FROM feed
+            ORDER BY id DESC
+               LIMIT 1;
             """
             )
 
