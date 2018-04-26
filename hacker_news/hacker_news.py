@@ -88,7 +88,8 @@ async def scrape_page(page, feed_id, loop):
                            SELECT 1
                              FROM post
                             WHERE id = %(id)s
-                            LIMIT 1);
+                            LIMIT 1
+            );
             """,
             {'id': post_id}
             )
@@ -226,7 +227,8 @@ async def scrape_post(post_id, feed_id):
                            SELECT 1
                              FROM comment
                             WHERE id = %(id)s
-                            LIMIT 1);
+                            LIMIT 1
+            );
             """,
             {'id': comment_id}
             )
@@ -427,9 +429,9 @@ def get_feeds(time_period):
     if time_period == 'day':
         cursor.execute(
             """
-              SELECT id
-                FROM feed
-            WHERE created > TIMESTAMP 'yesterday';
+            SELECT id
+              FROM feed
+             WHERE created > TIMESTAMP 'yesterday';
             """
             )
 
@@ -438,11 +440,11 @@ def get_feeds(time_period):
     elif time_period == 'week':
         cursor.execute(
             """
-              SELECT id
-                FROM feed
-               WHERE created BETWEEN
-                     now()::DATE-EXTRACT(DOW FROM now())::INT-7
-                     AND now()::DATE-EXTRACT(DOW from now())::INT;
+            SELECT id
+              FROM feed
+             WHERE created BETWEEN
+                   now()::DATE-EXTRACT(DOW FROM now())::INT-7
+                   AND now()::DATE-EXTRACT(DOW from now())::INT;
             """
             )
 
@@ -451,8 +453,8 @@ def get_feeds(time_period):
     elif time_period == 'all':
         cursor.execute(
             """
-              SELECT id
-                FROM feed;
+            SELECT id
+              FROM feed;
             """
             )
 
@@ -486,15 +488,15 @@ def get_average_comment_count(feed_ids):
     cursor.execute(
         """
         SELECT avg(comment_count)
-        FROM (
-                SELECT post_id,
-                       COUNT(*) AS comment_count
-                  FROM comment
-                       JOIN feed_comment
-                         ON feed_comment.comment_id = comment.id
-                 WHERE feed_id = ANY(%(feed_id)s)
-              GROUP BY post_id
-        ) comment_count_table;
+          FROM (
+                  SELECT post_id,
+                         COUNT(*) AS comment_count
+                    FROM comment
+                         JOIN feed_comment
+                           ON feed_comment.comment_id = comment.id
+                   WHERE feed_id = ANY(%(feed_id)s)
+                GROUP BY post_id
+          ) comment_count_table;
         """,
         {'feed_id': feed_ids}
         )
@@ -603,15 +605,21 @@ def get_comments_with_highest_word_counts(feed_ids):
     # Get comments with highest word counts
     cursor.execute(
         """
-          SELECT comment.content, comment.created, comment.id, comment.level,
-                 comment.parent_comment, comment.post_id, comment.username,
-                 feed_comment.feed_rank,
-                 array_length(regexp_split_to_array(comment.content, '\s+'), 1)
-                    AS word_count
-            FROM comment
-                 JOIN feed_comment
-                   ON feed_comment.comment_id = comment.id
-           WHERE feed_id = ANY(%(feed_id)s)
+          SELECT *
+            FROM (
+                    SELECT DISTINCT ON (comment.id)
+                           comment.id, comment.content, comment.created,
+                           comment.level, comment.parent_comment,
+                           comment.post_id, comment.username,
+                           feed_comment.feed_rank,
+                           array_length(regexp_split_to_array(
+                              comment.content, '\s+'), 1) AS word_count
+                      FROM comment
+                           JOIN feed_comment
+                             ON feed_comment.comment_id = comment.id
+                     WHERE feed_id = ANY(%(feed_id)s)
+                  ORDER BY comment.id, word_count DESC
+            ) comment_table
         ORDER BY word_count DESC
            LIMIT %(count)s;
         """,
@@ -646,14 +654,20 @@ def get_most_frequent_comment_words(feed_ids):
           SELECT word, COUNT(*) AS word_frequency
             FROM (
                   SELECT regexp_split_to_table(LOWER(content), '\s+') AS word
-                    FROM comment
-                         JOIN feed_comment
-                           ON feed_comment.comment_id = comment.id
-                   WHERE feed_id = ANY(%(feed_id)s)
+                    FROM (
+                            SELECT DISTINCT ON (id)
+                                   comment.id, comment.content,
+                                   feed_comment.feed_id
+                              FROM comment
+                                    JOIN feed_comment
+                                      ON feed_comment.comment_id = comment.id
+                             WHERE feed_id = ANY(%(feed_id)s)
+                          ORDER BY comment.id, feed_id DESC
+                    ) comment_table
             ) word_table
         GROUP BY word
         ORDER BY word_frequency DESC
-        LIMIT %(count)s;
+           LIMIT %(count)s;
         """,
         {'feed_id': feed_ids,
         'count': count}
@@ -679,13 +693,19 @@ def get_deepest_comment_tree(feed_ids):
     # Get highest level comment (deepest in comment tree)
     cursor.execute(
         """
-          SELECT comment.content, comment.created, comment.id, comment.level,
-                 comment.parent_comment, comment.post_id, comment.username,
-                 feed_comment.feed_rank
-            FROM comment
-                 JOIN feed_comment
-                   ON feed_comment.comment_id = comment.id
-           WHERE feed_id = ANY(%(feed_id)s)
+          SELECT *
+            FROM (
+                  SELECT DISTINCT ON (comment.id)
+                         comment.id, comment.content, comment.created,
+                         comment.level, comment.parent_comment,
+                         comment.post_id, comment.username,
+                         feed_comment.feed_rank
+                    FROM comment
+                         JOIN feed_comment
+                           ON feed_comment.comment_id = comment.id
+                   WHERE feed_id = ANY(%(feed_id)s)
+                ORDER BY comment.id, level DESC
+            ) comment_table
         ORDER BY level DESC
            LIMIT 1;
         """,
@@ -730,16 +750,21 @@ def get_posts_with_highest_comment_counts(feed_ids):
     # Get posts with highest comment counts
     cursor.execute(
         """
-          SELECT post.created, post.id, post.link, post.title, post.type,
-                 post.username, post.website, feed_post.feed_rank,
-                 feed_post.point_count,
-                 (SELECT COUNT(*)
-                    FROM comment
-                   WHERE comment.post_id = post.id) AS comment_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE feed_id = ANY(%(feed_id)s)
+          SELECT *
+            FROM (
+                  SELECT DISTINCT ON (post.id)
+                         post.id, post.created, post.link, post.title,
+                         post.type, post.username, post.website,
+                         feed_post.feed_rank, feed_post.point_count,
+                         (SELECT COUNT(*)
+                            FROM comment
+                           WHERE comment.post_id = post.id) AS comment_count
+                    FROM post
+                         JOIN feed_post
+                           ON feed_post.post_id = post.id
+                   WHERE feed_id = ANY(%(feed_id)s)
+                ORDER BY post.id, comment_count DESC
+            ) post_table
         ORDER BY comment_count DESC
            LIMIT %(count)s;
         """,
@@ -771,16 +796,21 @@ def get_posts_with_highest_point_counts(feed_ids):
     # Get posts with highest point counts
     cursor.execute(
         """
-          SELECT post.created, post.id, post.link, post.title, post.type,
-                 post.username, post.website, feed_post.feed_rank,
-                 feed_post.point_count,
-                 (SELECT COUNT(*)
-                    FROM comment
-                   WHERE comment.post_id = post.id) AS comment_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE feed_id = ANY(%(feed_id)s)
+          SELECT *
+            FROM (
+                  SELECT DISTINCT ON (post.id)
+                         post.id, post.created, post.link, post.title,
+                         post.type, post.username, post.website,
+                         feed_post.feed_rank, feed_post.point_count,
+                         (SELECT COUNT(*)
+                            FROM comment
+                           WHERE comment.post_id = post.id) AS comment_count
+                    FROM post
+                         JOIN feed_post
+                           ON feed_post.post_id = post.id
+                   WHERE feed_id = ANY(%(feed_id)s)
+                ORDER BY post.id, point_count DESC
+            ) post_table
         ORDER BY point_count DESC
            LIMIT %(count)s;
         """,
@@ -809,10 +839,15 @@ def get_post_types(feed_ids):
     cursor.execute(
         """
           SELECT type, COUNT(*) AS type_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE feed_id = ANY(%(feed_id)s)
+            FROM (
+                    SELECT DISTINCT ON (post.id)
+                           post.id, post.type, feed_post.feed_id
+                      FROM post
+                           JOIN feed_post
+                             ON feed_post.post_id = post.id
+                     WHERE feed_id = ANY(%(feed_id)s)
+                  ORDER BY post.id, feed_post.feed_id DESC
+            ) post_table
         GROUP BY type
         ORDER BY type_count DESC;
         """,
@@ -846,10 +881,14 @@ def get_most_frequent_title_words(feed_ids):
           SELECT word, COUNT(*) AS word_frequency
             FROM (
                   SELECT regexp_split_to_table(LOWER(title), '\s+') AS word
-                    FROM post
-                         JOIN feed_post
-                           ON feed_post.post_id = post.id
-                   WHERE feed_id = ANY(%(feed_id)s)
+                    FROM (
+                            SELECT DISTINCT ON (post.id)
+                              FROM post
+                                   JOIN feed_post
+                                     ON feed_post.post_id = post.id
+                             WHERE feed_id = ANY(%(feed_id)s)
+                          ORDER BY post.id, feed_post.feed_id DESC
+                    ) post_table
             ) word_table
         GROUP BY word
         ORDER BY word_frequency DESC
@@ -883,16 +922,21 @@ def get_top_posts(feed_ids):
     # Get posts in order of rank
     cursor.execute(
         """
-          SELECT post.created, post.id, post.link, post.title, post.type,
-                 post.username, post.website, feed_post.feed_rank,
-                 feed_post.point_count,
-                 (SELECT COUNT(*)
-                    FROM comment
-                   WHERE comment.post_id = post.id) AS comment_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE feed_id = ANY(%(feed_id)s)
+          SELECT *
+            FROM (
+                  SELECT DISTINCT ON (post.id)
+                         post.id, post.created, post.link, post.title,
+                         post.type, post.username, post.website,
+                         feed_post.feed_rank, feed_post.point_count,
+                         (SELECT COUNT(*)
+                            FROM comment
+                           WHERE comment.post_id = post.id) AS comment_count
+                    FROM post
+                         JOIN feed_post
+                           ON feed_post.post_id = post.id
+                   WHERE feed_id = ANY(%(feed_id)s)
+                ORDER BY post.id, feed_rank
+            ) post_table
         ORDER BY feed_rank
            LIMIT %(count)s;
         """,
@@ -925,14 +969,19 @@ def get_top_websites(feed_ids):
     cursor.execute(
         """
           SELECT website, COUNT(*) AS link_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE feed_id = ANY(%(feed_id)s)
-                 AND website != ''
+            FROM (
+                    SELECT DISTINCT ON (post.id)
+                           post.id, post.website, feed_post.feed_id
+                      FROM post
+                           JOIN feed_post
+                             ON feed_post.post_id = post.id
+                     WHERE feed_id = ANY(%(feed_id)s)
+                           AND website != ''
+                  ORDER BY post.id, feed_post.feed_id DESC
+            ) post_table
         GROUP BY website
         ORDER BY link_count DESC
-        LIMIT %(count)s;
+           LIMIT %(count)s;
         """,
         {'feed_id': feed_ids,
         'count': count}
@@ -963,10 +1012,15 @@ def get_users_with_most_comments(feed_ids):
     cursor.execute(
         """
           SELECT username, COUNT(username) AS comment_count
-            FROM comment
-                 JOIN feed_comment
-                   ON feed_comment.comment_id = comment.id
-           WHERE feed_id = ANY(%(feed_id)s)
+            FROM (
+                    SELECT DISTINCT ON (comment.id)
+                           comment.id, comment.username, feed_comment.feed_id
+                      FROM comment
+                           JOIN feed_comment
+                             ON feed_comment.comment_id = comment.id
+                     WHERE feed_id = ANY(%(feed_id)s)
+                  ORDER BY comment.id, feed_comment.feed_id DESC
+            ) comment_table
         GROUP BY username
         ORDER BY comment_count DESC
            LIMIT %(count)s;
@@ -1000,11 +1054,16 @@ def get_users_with_most_posts(feed_ids):
     cursor.execute(
         """
           SELECT username, COUNT(username) AS post_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE feed_id = ANY(%(feed_id)s)
-                 AND username != ''
+            FROM (
+                    SELECT DISTINCT ON (post.id)
+                           post.id, post.username, feed_post.feed_id
+                      FROM post
+                           JOIN feed_post
+                             ON feed_post.post_id = post.id
+                     WHERE feed_id = ANY(%(feed_id)s)
+                           AND username != ''
+                  ORDER BY post.id, feed_post.feed_id DESC
+            ) post_table
         GROUP BY username
         ORDER BY post_count DESC
            LIMIT %(count)s;
@@ -1040,10 +1099,15 @@ def get_users_with_most_words_in_comments(feed_ids):
           SELECT username,
                  SUM(array_length(regexp_split_to_array(content, '\s+'), 1))
                      AS word_count
-            FROM comment
-                 JOIN feed_comment
-                   ON feed_comment.comment_id = comment.id
-           WHERE feed_id = ANY(%(feed_id)s)
+            FROM (
+                    SELECT DISTINCT ON (comment.id)
+                           comment.id, comment.username, feed_comment.feed_id
+                      FROM comment
+                           JOIN feed_comment
+                             ON feed_comment.comment_id = comment.id
+                     WHERE feed_id = ANY(%(feed_id)s)
+                  ORDER BY comment.id, feed_comment.feed_id DESC
+            ) comment_table
         GROUP BY username
         ORDER BY word_count DESC
            LIMIT %(count)s;
