@@ -15,7 +15,8 @@ def initialize_database():
 
     cursor = conn.cursor()
 
-    # Create 'post_type' type and database tables
+    # Create 'post_type' type, database tables, and custom text dictionary for
+    # detecting stop words without word stemming
     cursor.execute(
         """
         DO $$
@@ -70,6 +71,38 @@ def initialize_database():
             feed_id    INT REFERENCES feed(id)    ON DELETE CASCADE,
             feed_rank  INT NOT NULL
         );
+
+        DO $$
+        BEGIN
+            IF NOT EXISTS
+                          (SELECT 1
+                             FROM pg_ts_dict
+                            WHERE dictname = 'simple_english')
+                     THEN CREATE TEXT SEARCH DICTIONARY simple_english (
+                        TEMPLATE = pg_catalog.simple,
+                        STOPWORDS = english
+                     );
+            END IF;
+        END
+        $$;
+
+        DO $$
+        BEGIN
+            IF NOT EXISTS
+                          (SELECT 1
+                             FROM pg_ts_config
+                            WHERE cfgname = 'simple_english')
+                     THEN CREATE TEXT SEARCH CONFIGURATION simple_english (
+                        COPY = english
+                     );
+            END IF;
+        END
+        $$;
+
+        ALTER TEXT SEARCH CONFIGURATION simple_english
+            ALTER MAPPING FOR asciihword, asciiword, hword, hword_asciipart,
+                              hword_part, word
+                         WITH simple_english;
         """
         )
 
