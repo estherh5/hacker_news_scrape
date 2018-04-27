@@ -648,25 +648,24 @@ def get_most_frequent_comment_words(feed_ids):
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get highest-frequency words used in comments
+    # Get highest-frequency words used in comments, excluding stop words
     cursor.execute(
         """
-          SELECT word, COUNT(*) AS word_frequency
-            FROM (
-                  SELECT regexp_split_to_table(LOWER(content), '\s+') AS word
-                    FROM (
-                            SELECT DISTINCT ON (id)
-                                   comment.id, comment.content,
-                                   feed_comment.feed_id
-                              FROM comment
+          SELECT *
+            FROM ts_stat(
+                 $$SELECT to_tsvector('simple_english', LOWER(content))
+                     FROM (
+                             SELECT DISTINCT ON (id)
+                                    comment.id, comment.content,
+                                    feed_comment.feed_id
+                               FROM comment
                                     JOIN feed_comment
                                       ON feed_comment.comment_id = comment.id
-                             WHERE feed_id = ANY(%(feed_id)s)
-                          ORDER BY comment.id, feed_id DESC
-                    ) comment_table
-            ) word_table
-        GROUP BY word
-        ORDER BY word_frequency DESC
+                              WHERE feed_id = ANY(%(feed_id)s)
+                           ORDER BY comment.id, feed_id DESC
+                     ) comment_table $$)
+           WHERE LENGTH (word) > 1
+        ORDER BY nentry DESC
            LIMIT %(count)s;
         """,
         {'feed_id': feed_ids,
@@ -878,20 +877,21 @@ def get_most_frequent_title_words(feed_ids):
     # Get highest-frequency words used in post titles
     cursor.execute(
         """
-          SELECT word, COUNT(*) AS word_frequency
-            FROM (
-                  SELECT regexp_split_to_table(LOWER(title), '\s+') AS word
-                    FROM (
-                            SELECT DISTINCT ON (post.id)
-                              FROM post
-                                   JOIN feed_post
-                                     ON feed_post.post_id = post.id
-                             WHERE feed_id = ANY(%(feed_id)s)
-                          ORDER BY post.id, feed_post.feed_id DESC
-                    ) post_table
-            ) word_table
-        GROUP BY word
-        ORDER BY word_frequency DESC
+          SELECT *
+            FROM ts_stat(
+                 $$SELECT to_tsvector('simple_english', LOWER(title))
+                     FROM (
+                             SELECT DISTINCT ON (post.id)
+                                    post.id, post.title, feed_post.feed_id
+                               FROM post
+                                    JOIN feed_post
+                                      ON feed_post.post_id = post.id
+                              WHERE feed_id = ANY(%(feed_id)s)
+                           ORDER BY post.id, feed_post.feed_id DESC
+                     ) post_table $$)
+           WHERE word NOT IN ('ask', 'hn', 'show')
+             AND LENGTH (word) > 1
+        ORDER BY nentry DESC
            LIMIT %(count)s;
         """,
         {'feed_id': feed_ids,
@@ -1011,10 +1011,13 @@ def get_users_with_most_comments(feed_ids):
     # Get users who posted the most comments
     cursor.execute(
         """
-          SELECT username, COUNT(username) AS comment_count
+          SELECT username, COUNT(username) AS comment_count,
+                 SUM(array_length(regexp_split_to_array(content, '\s+'), 1))
+                     AS word_count
             FROM (
                     SELECT DISTINCT ON (comment.id)
-                           comment.id, comment.username, feed_comment.feed_id
+                           comment.id, comment.content, comment.username,
+                           feed_comment.feed_id
                       FROM comment
                            JOIN feed_comment
                              ON feed_comment.comment_id = comment.id
@@ -1096,12 +1099,13 @@ def get_users_with_most_words_in_comments(feed_ids):
     # Get users who posted the most words in comments
     cursor.execute(
         """
-          SELECT username,
+          SELECT username, COUNT(username) AS comment_count,
                  SUM(array_length(regexp_split_to_array(content, '\s+'), 1))
                      AS word_count
             FROM (
                     SELECT DISTINCT ON (comment.id)
-                           comment.id, comment.username, feed_comment.feed_id
+                           comment.id, comment.content, comment.username,
+                           feed_comment.feed_id
                       FROM comment
                            JOIN feed_comment
                              ON feed_comment.comment_id = comment.id
