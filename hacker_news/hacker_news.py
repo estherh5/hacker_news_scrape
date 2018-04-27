@@ -882,7 +882,7 @@ def get_most_frequent_title_words(feed_ids):
 
     cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
 
-    # Get highest-frequency words used in post titles
+    # Get highest-frequency words used in post titles, excluding stop words
     cursor.execute(
         """
           SELECT *
