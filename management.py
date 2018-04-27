@@ -37,6 +37,9 @@ def initialize_database():
             id      SERIAL    NOT NULL
         );
 
+        CREATE INDEX IF NOT EXISTS feed_id_index
+               ON feed (id);
+
         CREATE TABLE IF NOT EXISTS post (
             PRIMARY KEY (id),
             created  TIMESTAMP NOT NULL,
@@ -48,12 +51,18 @@ def initialize_database():
             website  TEXT
         );
 
+        CREATE INDEX IF NOT EXISTS post_index
+               ON post (id, username);
+
         CREATE TABLE IF NOT EXISTS feed_post (
             feed_id     INT REFERENCES feed(id) ON DELETE CASCADE,
             feed_rank   INT NOT NULL,
             point_count INT DEFAULT 0           NOT NULL,
             post_id     INT REFERENCES post(id) ON DELETE CASCADE
         );
+
+        CREATE INDEX IF NOT EXISTS feed_post_index
+               ON feed_post (feed_id, feed_rank, point_count, post_id);
 
         CREATE TABLE IF NOT EXISTS comment (
             PRIMARY KEY (id),
@@ -66,11 +75,17 @@ def initialize_database():
             username       TEXT      NOT NULL
         );
 
+        CREATE INDEX IF NOT EXISTS comment_index
+               ON comment (id, level, parent_comment, post_id, username);
+
         CREATE TABLE IF NOT EXISTS feed_comment (
             comment_id INT REFERENCES comment(id) ON DELETE CASCADE,
             feed_id    INT REFERENCES feed(id)    ON DELETE CASCADE,
             feed_rank  INT NOT NULL
         );
+
+        CREATE INDEX IF NOT EXISTS feed_comment_index
+               ON feed_comment (comment_id, feed_id, feed_rank);
 
         DO $$
         BEGIN
