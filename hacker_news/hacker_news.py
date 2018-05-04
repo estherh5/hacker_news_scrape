@@ -213,6 +213,19 @@ async def scrape_post(post_id, feed_id):
     # Get all comment rows from HTML tree
     comment_rows = post_soup.select('tr.athing.comtr')
 
+    # Add comment count to database
+    cursor.execute(
+        """
+        UPDATE feed_post
+           SET comment_count = %(comment_count)s
+         WHERE post_id = %(post_id)s
+               AND feed_id = %(feed_id)s;
+        """,
+        {'comment_count': len(comment_rows),
+        'post_id': post_id,
+        'feed_id': feed_id}
+        )
+
     # Set starting comment feed rank to 0
     comment_feed_rank = 0
 
@@ -392,9 +405,7 @@ def get_post(post_id):
         """
           SELECT post.created, post.link, post.title, post.type, post.username,
                  post.website, feed_post.feed_rank, feed_post.point_count,
-                 (SELECT COUNT(*)
-                    FROM comment
-                   WHERE comment.post_id = post.id) AS comment_count
+                 feed_post.comment_count
             FROM post
                  JOIN feed_post
                    ON feed_post.post_id = post.id
@@ -488,15 +499,8 @@ def get_average_comment_count(feed_ids):
     cursor.execute(
         """
         SELECT avg(comment_count)
-          FROM (
-                  SELECT post_id,
-                         COUNT(*) AS comment_count
-                    FROM comment
-                         JOIN feed_comment
-                           ON feed_comment.comment_id = comment.id
-                   WHERE feed_id = ANY(%(feed_id)s)
-                GROUP BY post_id
-          ) comment_count_table;
+          FROM feed_post
+         WHERE feed_id = ANY(%(feed_id)s);
         """,
         {'feed_id': feed_ids}
         )
@@ -755,9 +759,7 @@ def get_posts_with_highest_comment_counts(feed_ids):
                          post.id, post.created, post.link, post.title,
                          post.type, post.username, post.website,
                          feed_post.feed_rank, feed_post.point_count,
-                         (SELECT COUNT(*)
-                            FROM comment
-                           WHERE comment.post_id = post.id) AS comment_count
+                         feed_post.comment_count
                     FROM post
                          JOIN feed_post
                            ON feed_post.post_id = post.id
@@ -801,14 +803,12 @@ def get_posts_with_highest_point_counts(feed_ids):
                          post.id, post.created, post.link, post.title,
                          post.type, post.username, post.website,
                          feed_post.feed_rank, feed_post.point_count,
-                         (SELECT COUNT(*)
-                            FROM comment
-                           WHERE comment.post_id = post.id) AS comment_count
+                         feed_post.comment_count
                     FROM post
                          JOIN feed_post
                            ON feed_post.post_id = post.id
                    WHERE feed_id = ANY(%(feed_id)s)
-                ORDER BY post.id, point_count DESC
+                ORDER BY post.id, feed_post.point_count DESC
             ) post_table
         ORDER BY point_count DESC
            LIMIT %(count)s;
@@ -928,9 +928,7 @@ def get_top_posts(feed_ids):
                          post.id, post.created, post.link, post.title,
                          post.type, post.username, post.website,
                          feed_post.feed_rank, feed_post.point_count,
-                         (SELECT COUNT(*)
-                            FROM comment
-                           WHERE comment.post_id = post.id) AS comment_count
+                         feed_post.comment_count
                     FROM post
                          JOIN feed_post
                            ON feed_post.post_id = post.id
