@@ -55,14 +55,16 @@ def initialize_database():
                ON post (id, username);
 
         CREATE TABLE IF NOT EXISTS feed_post (
-            feed_id     INT REFERENCES feed(id) ON DELETE CASCADE,
-            feed_rank   INT NOT NULL,
-            point_count INT DEFAULT 0           NOT NULL,
-            post_id     INT REFERENCES post(id) ON DELETE CASCADE
+            comment_count INT DEFAULT 0           NOT NULL,
+            feed_id       INT REFERENCES feed(id) ON DELETE CASCADE,
+            feed_rank     INT NOT NULL,
+            point_count   INT DEFAULT 0           NOT NULL,
+            post_id       INT REFERENCES post(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS feed_post_index
-               ON feed_post (feed_id, feed_rank, point_count, post_id);
+               ON feed_post (comment_count, feed_id, feed_rank, point_count,
+                             post_id);
 
         CREATE TABLE IF NOT EXISTS comment (
             PRIMARY KEY (id),
