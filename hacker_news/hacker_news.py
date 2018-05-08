@@ -257,11 +257,15 @@ async def scrape_post(post_id, feed_id):
                 # and strip trailing whitespace
                 comment_content = comment_content.rsplit(' ', 1)[0].strip()
 
+                word_count = len(comment_content.split())
+
             # Otherwise, comment is flagged, so get flagged message as text
             # and strip trailing whitespace
             else:
                 comment_content = comment_row.find(
                     'div', 'comment').get_text().strip()
+
+                word_count = 0
 
             # Get UTC timestamp for comment's posting time by subtracting
             # the number of hours/minutes ago given on the webpage from the
@@ -320,9 +324,10 @@ async def scrape_post(post_id, feed_id):
                 """
                 INSERT INTO comment
                             (id, content, created, level, parent_comment,
-                            post_id, username)
+                            post_id, username, word_count)
                      VALUES (%(id)s, %(content)s, %(created)s, %(level)s,
-                            %(parent_comment)s, %(post_id)s, %(username)s);
+                            %(parent_comment)s, %(post_id)s, %(username)s,
+                            %(word_count)s);
                 """,
                 {'id': comment_id,
                 'content': comment_content,
@@ -330,7 +335,8 @@ async def scrape_post(post_id, feed_id):
                 'level': level,
                 'parent_comment': parent_comment,
                 'post_id': post_id,
-                'username': comment_username}
+                'username': comment_username,
+                'word_count': word_count}
                 )
 
         # Increment comment feed rank to get current comment's rank
@@ -549,15 +555,10 @@ def get_average_comment_word_count(feed_ids):
     cursor.execute(
         """
         SELECT avg(word_count)
-        FROM (
-              SELECT id,
-                     array_length(regexp_split_to_array(content, '\s+'), 1)
-                        AS word_count
-                FROM comment
-                     JOIN feed_comment
-                       ON feed_comment.comment_id = comment.id
-               WHERE feed_id = ANY(%(feed_id)s)
-        ) word_count_table;
+          FROM comment
+               JOIN feed_comment
+                 ON feed_comment.comment_id = comment.id
+         WHERE feed_id = ANY(%(feed_id)s);
         """,
         {'feed_id': feed_ids}
         )
@@ -615,9 +616,7 @@ def get_comments_with_highest_word_counts(feed_ids):
                            comment.id, comment.content, comment.created,
                            comment.level, comment.parent_comment,
                            comment.post_id, comment.username,
-                           feed_comment.feed_rank,
-                           array_length(regexp_split_to_array(
-                              comment.content, '\s+'), 1) AS word_count
+                           comment.word_count, feed_comment.feed_rank
                       FROM comment
                            JOIN feed_comment
                              ON feed_comment.comment_id = comment.id
@@ -1010,12 +1009,11 @@ def get_users_with_most_comments(feed_ids):
     cursor.execute(
         """
           SELECT username, COUNT(username) AS comment_count,
-                 SUM(array_length(regexp_split_to_array(content, '\s+'), 1))
-                     AS word_count
+                 SUM(word_count) AS word_count
             FROM (
                     SELECT DISTINCT ON (comment.id)
                            comment.id, comment.content, comment.username,
-                           feed_comment.feed_id
+                           comment.word_count, feed_comment.feed_id
                       FROM comment
                            JOIN feed_comment
                              ON feed_comment.comment_id = comment.id
@@ -1098,12 +1096,11 @@ def get_users_with_most_words_in_comments(feed_ids):
     cursor.execute(
         """
           SELECT username, COUNT(username) AS comment_count,
-                 SUM(array_length(regexp_split_to_array(content, '\s+'), 1))
-                     AS word_count
+                 SUM(word_count) AS word_count
             FROM (
                     SELECT DISTINCT ON (comment.id)
                            comment.id, comment.content, comment.username,
-                           feed_comment.feed_id
+                           comment.word_count, feed_comment.feed_id
                       FROM comment
                            JOIN feed_comment
                              ON feed_comment.comment_id = comment.id

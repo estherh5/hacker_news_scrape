@@ -74,11 +74,13 @@ def initialize_database():
             level          INT       NOT NULL,
             parent_comment INT       REFERENCES comment(id) ON DELETE CASCADE,
             post_id        INT       REFERENCES post(id)    ON DELETE CASCADE,
-            username       TEXT      NOT NULL
+            username       TEXT      NOT NULL,
+            word_count     INT       DEFAULT 0              NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS comment_index
-               ON comment (id, level, parent_comment, post_id, username);
+               ON comment (id, level, parent_comment, post_id, username,
+                           word_count);
 
         CREATE TABLE IF NOT EXISTS feed_comment (
             comment_id INT REFERENCES comment(id) ON DELETE CASCADE,
