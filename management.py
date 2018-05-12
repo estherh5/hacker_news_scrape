@@ -91,6 +91,26 @@ def initialize_database():
         CREATE INDEX IF NOT EXISTS feed_comment_index
                ON feed_comment (comment_id, feed_id, feed_rank);
 
+        CREATE MATERIALIZED VIEW IF NOT EXISTS user_content_counts AS
+                 SELECT comment_table.username,
+                        count(comment_table.username) AS comment_count,
+                        sum(comment_table.word_count) AS word_count,
+                        comment_table.feed_id
+                   FROM (
+                         SELECT comment.id, comment.content,
+                                comment.username, comment.word_count,
+                                feed_comment.feed_id
+                           FROM comment
+                                JOIN feed_comment
+                                  ON feed_comment.comment_id = comment.id
+                          WHERE comment.username != '') comment_table
+               GROUP BY comment_table.username, comment_table.feed_id
+               ORDER BY word_count DESC;
+
+        CREATE INDEX IF NOT EXISTS user_content_index
+               ON user_content_counts (username, comment_count, word_count,
+                                       feed_id);
+
         DO $$
         BEGIN
             IF NOT EXISTS
