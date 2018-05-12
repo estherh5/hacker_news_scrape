@@ -29,9 +29,6 @@ def scrape_loop():
 
     conn.commit()
 
-    cursor.close()
-    conn.close()
-
     # Create asynchronous tasks to scrape first three pages of Hacker News
     loop = asyncio.get_event_loop()
 
@@ -46,6 +43,18 @@ def scrape_loop():
     loop.run_until_complete(wait_tasks)
 
     loop.close()
+
+    # Refresh materialized view
+    cursor.execute(
+        """
+        REFRESH MATERIALIZED VIEW user_content_counts;
+        """
+    )
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
 
     print('Scrape completed for first three pages of Hacker News.')
 
@@ -1008,19 +1017,14 @@ def get_users_with_most_comments(feed_ids):
     # Get users who posted the most comments
     cursor.execute(
         """
-          SELECT username, COUNT(username) AS comment_count,
-                 SUM(word_count) AS word_count
+          SELECT *
             FROM (
-                    SELECT DISTINCT ON (comment.id)
-                           comment.id, comment.content, comment.username,
-                           comment.word_count, feed_comment.feed_id
-                      FROM comment
-                           JOIN feed_comment
-                             ON feed_comment.comment_id = comment.id
+                    SELECT DISTINCT ON (username)
+                           username, comment_count, word_count
+                      FROM user_content_counts
                      WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY comment.id, feed_comment.feed_id DESC
-            ) comment_table
-        GROUP BY username
+                  ORDER BY username, comment_count DESC
+            ) user_table
         ORDER BY comment_count DESC
            LIMIT %(count)s;
         """,
@@ -1095,19 +1099,14 @@ def get_users_with_most_words_in_comments(feed_ids):
     # Get users who posted the most words in comments
     cursor.execute(
         """
-          SELECT username, COUNT(username) AS comment_count,
-                 SUM(word_count) AS word_count
+          SELECT *
             FROM (
-                    SELECT DISTINCT ON (comment.id)
-                           comment.id, comment.content, comment.username,
-                           comment.word_count, feed_comment.feed_id
-                      FROM comment
-                           JOIN feed_comment
-                             ON feed_comment.comment_id = comment.id
+                    SELECT DISTINCT ON (username)
+                           username, comment_count, word_count
+                      FROM user_content_counts
                      WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY comment.id, feed_comment.feed_id DESC
-            ) comment_table
-        GROUP BY username
+                  ORDER BY username, word_count DESC
+            ) user_table
         ORDER BY word_count DESC
            LIMIT %(count)s;
         """,
