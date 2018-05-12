@@ -266,7 +266,7 @@ async def scrape_post(post_id, feed_id):
                 # and strip trailing whitespace
                 comment_content = comment_content.rsplit(' ', 1)[0].strip()
 
-                word_count = len(comment_content.split())
+                total_word_count = len(comment_content.split())
 
             # Otherwise, comment is flagged, so get flagged message as text
             # and strip trailing whitespace
@@ -274,7 +274,7 @@ async def scrape_post(post_id, feed_id):
                 comment_content = comment_row.find(
                     'div', 'comment').get_text().strip()
 
-                word_count = 0
+                total_word_count = 0
 
             # Get UTC timestamp for comment's posting time by subtracting
             # the number of hours/minutes ago given on the webpage from the
@@ -333,10 +333,11 @@ async def scrape_post(post_id, feed_id):
                 """
                 INSERT INTO comment
                             (id, content, created, level, parent_comment,
-                            post_id, username, word_count)
+                            post_id, total_word_count, username, word_counts)
                      VALUES (%(id)s, %(content)s, %(created)s, %(level)s,
-                            %(parent_comment)s, %(post_id)s, %(username)s,
-                            %(word_count)s);
+                            %(parent_comment)s, %(post_id)s,
+                            %(total_word_count)s, %(username)s,
+                            to_tsvector('simple_english', LOWER(%(content)s)));
                 """,
                 {'id': comment_id,
                 'content': comment_content,
@@ -344,8 +345,8 @@ async def scrape_post(post_id, feed_id):
                 'level': level,
                 'parent_comment': parent_comment,
                 'post_id': post_id,
-                'username': comment_username,
-                'word_count': word_count}
+                'total_word_count': total_word_count,
+                'username': comment_username}
                 )
 
         # Increment comment feed rank to get current comment's rank
@@ -563,7 +564,7 @@ def get_average_comment_word_count(feed_ids):
     # Get average comment word count
     cursor.execute(
         """
-        SELECT avg(word_count)
+        SELECT avg(total_word_count)
           FROM comment
                JOIN feed_comment
                  ON feed_comment.comment_id = comment.id
@@ -625,14 +626,14 @@ def get_comments_with_highest_word_counts(feed_ids):
                            comment.id, comment.content, comment.created,
                            comment.level, comment.parent_comment,
                            comment.post_id, comment.username,
-                           comment.word_count, feed_comment.feed_rank
+                           comment.totaL_word_count, feed_comment.feed_rank
                       FROM comment
                            JOIN feed_comment
                              ON feed_comment.comment_id = comment.id
                      WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY comment.id, word_count DESC
+                  ORDER BY comment.id, total_word_count DESC
             ) comment_table
-        ORDER BY word_count DESC
+        ORDER BY total_word_count DESC
            LIMIT %(count)s;
         """,
         {'feed_id': feed_ids,
@@ -665,16 +666,15 @@ def get_most_frequent_comment_words(feed_ids):
         """
           SELECT *
             FROM ts_stat(
-                 $$SELECT to_tsvector('simple_english', LOWER(content))
+                 $$SELECT word_counts
                      FROM (
                              SELECT DISTINCT ON (id)
-                                    comment.id, comment.content,
-                                    feed_comment.feed_id
+                                    id, feed_id, word_counts
                                FROM comment
                                     JOIN feed_comment
                                       ON feed_comment.comment_id = comment.id
                               WHERE feed_id = ANY(%(feed_id)s)
-                           ORDER BY comment.id, feed_id DESC
+                           ORDER BY id, word_counts DESC
                      ) comment_table $$)
            WHERE LENGTH (word) > 1
         ORDER BY nentry DESC
