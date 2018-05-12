@@ -68,19 +68,22 @@ def initialize_database():
 
         CREATE TABLE IF NOT EXISTS comment (
             PRIMARY KEY (id),
-            content        TEXT      NOT NULL,
-            created        TIMESTAMP NOT NULL,
-            id             INT       NOT NULL,
-            level          INT       NOT NULL,
-            parent_comment INT       REFERENCES comment(id) ON DELETE CASCADE,
-            post_id        INT       REFERENCES post(id)    ON DELETE CASCADE,
-            username       TEXT      NOT NULL,
-            word_count     INT       DEFAULT 0              NOT NULL
+            content          TEXT      NOT NULL,
+            created          TIMESTAMP NOT NULL,
+            id               INT       NOT NULL,
+            level            INT       NOT NULL,
+            parent_comment   INT       REFERENCES comment(id)
+                             ON DELETE CASCADE,
+            post_id          INT       REFERENCES post(id)
+                             ON DELETE CASCADE,
+            total_word_count INT       DEFAULT 0              NOT NULL,
+            username         TEXT      NOT NULL,
+            word_counts      TSVECTOR  NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS comment_index
-               ON comment (id, level, parent_comment, post_id, username,
-                           word_count);
+               ON comment (id, level, parent_comment, post_id,
+                           total_word_count, username);
 
         CREATE TABLE IF NOT EXISTS feed_comment (
             comment_id INT REFERENCES comment(id) ON DELETE CASCADE,
@@ -94,11 +97,11 @@ def initialize_database():
         CREATE MATERIALIZED VIEW IF NOT EXISTS user_content_counts AS
                  SELECT comment_table.username,
                         count(comment_table.username) AS comment_count,
-                        sum(comment_table.word_count) AS word_count,
+                        sum(comment_table.total_word_count) AS word_count,
                         comment_table.feed_id
                    FROM (
                          SELECT comment.id, comment.content,
-                                comment.username, comment.word_count,
+                                comment.username, comment.total_word_count,
                                 feed_comment.feed_id
                            FROM comment
                                 JOIN feed_comment
