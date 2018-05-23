@@ -1,33 +1,30 @@
 import asyncio
 import os
-import psycopg2 as pg
-import psycopg2.extras
 import requests
 import time
 
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from flask import jsonify, make_response, request
+from sqlalchemy import desc, inspect
+from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.sql import func
+
+from hacker_news import models
 
 
 def scrape_loop():
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor()
+    # Connect to database
+    session = models.Session()
 
     # Add feed to database
-    cursor.execute(
-        """
-           INSERT INTO feed
-        DEFAULT VALUES
-             RETURNING id;
-        """
-        )
+    new_feed = models.Feed()
 
-    feed_id = cursor.fetchone()[0]
+    session.add(new_feed)
 
-    conn.commit()
+    session.commit()
+
+    feed_id = new_feed.id
 
     # Create asynchronous tasks to scrape first three pages of Hacker News
     loop = asyncio.get_event_loop()
@@ -45,16 +42,11 @@ def scrape_loop():
     loop.close()
 
     # Refresh materialized view
-    cursor.execute(
-        """
-        REFRESH MATERIALIZED VIEW user_content_counts;
-        """
-    )
+    session.execute('REFRESH MATERIALIZED VIEW user_content_counts')
 
-    conn.commit()
+    session.commit()
 
-    cursor.close()
-    conn.close()
+    session.close()
 
     print('Scrape completed for first three pages of Hacker News.')
 
@@ -62,14 +54,12 @@ def scrape_loop():
 
 
 async def scrape_page(page, feed_id, loop):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor()
+    # Connect to database
+    session = models.Session()
 
     print('Scrape initiated for page ' + str(page) + ' of Hacker News.')
 
-    # Current UTC time in seconds
+    # Get current UTC time in seconds
     now = int(datetime.utcnow().strftime('%s'))
 
     # Get HTML tree from feed page
@@ -90,21 +80,12 @@ async def scrape_page(page, feed_id, loop):
         # Get post id
         post_id = post_row.get('id')
 
-        # Check if post already exists in database
-        cursor.execute(
-            """
-            SELECT exists (
-                           SELECT 1
-                             FROM post
-                            WHERE id = %(id)s
-                            LIMIT 1
-            );
-            """,
-            {'id': post_id}
-            )
+        # Check if post exists in database
+        post_exists = session.query(models.Post.id).filter_by(
+            id=post_id).scalar()
 
         # Get core post data if it is not in database already
-        if not cursor.fetchone()[0]:
+        if not post_exists:
             # Get UTC timestamp for post's posting time by subtracting the
             # number of hours/minutes ago given on the webpage from the current
             # UTC timestamp
@@ -149,27 +130,15 @@ async def scrape_page(page, feed_id, loop):
                 website = ''
 
             # Add post data to database
-            cursor.execute(
-                """
-                INSERT INTO post
-                            (id, created, link, title, type, username, website)
-                     VALUES (%(id)s, %(created)s, %(link)s, %(title)s,
-                            %(type)s, %(username)s, %(website)s);
-                """,
-                {'id': post_id,
-                'created': created,
-                'link': link,
-                'title': title,
-                'type': type,
-                'username': username,
-                'website': website}
-                )
+            post = models.Post(created=created, id=post_id, link=link,
+                title=title, type=type, username=username, website=website)
+
+            session.add(post)
 
         # Get post's rank on feed page
         feed_rank = post_row.find('span', 'rank').get_text()[:-1]
 
-        # Get post's score if it is listed (otherwise, post is job
-        # posting)
+        # Get post's score if it is listed (otherwise, post is job posting)
         if subtext_row.find('span', 'score'):
             point_count = subtext_row.find(
                 'span', 'score').get_text().split()[0]
@@ -178,37 +147,24 @@ async def scrape_page(page, feed_id, loop):
             type = 'job'
 
         # Add feed-based post data to database
-        cursor.execute(
-            """
-            INSERT INTO feed_post
-                        (feed_id, feed_rank, point_count, post_id)
-                 VALUES (%(feed_id)s, %(feed_rank)s, %(point_count)s,
-                        %(post_id)s);
-            """,
-            {'feed_id': feed_id,
-            'feed_rank': feed_rank,
-            'point_count': point_count,
-            'post_id': post_id}
-            )
+        feed_post = models.FeedPost(feed_id=feed_id, feed_rank=feed_rank,
+            point_count=point_count, post_id=post_id)
 
-        conn.commit()
+        session.add(feed_post)
+
+        session.commit()
 
         # Create asynchronous task to scrape post page for its comments
         loop.create_task(scrape_post(post_id, feed_id))
-
-    cursor.close()
-    conn.close()
 
     return
 
 
 async def scrape_post(post_id, feed_id):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
+    # Connect to database
+    session = models.Session()
 
-    cursor = conn.cursor()
-
-    # Current UTC time in seconds
+    # Get current UTC time in seconds
     now = int(datetime.utcnow().strftime('%s'))
 
     # Get HTML tree from post's webpage
@@ -222,18 +178,13 @@ async def scrape_post(post_id, feed_id):
     # Get all comment rows from HTML tree
     comment_rows = post_soup.select('tr.athing.comtr')
 
-    # Add comment count to database
-    cursor.execute(
-        """
-        UPDATE feed_post
-           SET comment_count = %(comment_count)s
-         WHERE post_id = %(post_id)s
-               AND feed_id = %(feed_id)s;
-        """,
-        {'comment_count': len(comment_rows),
-        'post_id': post_id,
-        'feed_id': feed_id}
-        )
+    # Get post from database
+    post = session.query(models.FeedPost).filter(
+        models.FeedPost.post_id == post_id).filter(
+        models.FeedPost.feed_id == feed_id).limit(1).one()
+
+    # Add post's comment count to database
+    post.comment_count = len(comment_rows)
 
     # Set starting comment feed rank to 0
     comment_feed_rank = 0
@@ -242,21 +193,12 @@ async def scrape_post(post_id, feed_id):
         # Get comment id
         comment_id = comment_row.get('id')
 
-        # Check if comment already exists in database
-        cursor.execute(
-            """
-            SELECT exists (
-                           SELECT 1
-                             FROM comment
-                            WHERE id = %(id)s
-                            LIMIT 1
-            );
-            """,
-            {'id': comment_id}
-            )
+        # Check if comment exists in database
+        comment_exists = session.query(models.Comment.id).filter_by(
+            id=comment_id).scalar()
 
         # Get core comment data if it is not in database already
-        if not cursor.fetchone()[0]:
+        if not comment_exists:
             # If comment has content span, get text from span
             if comment_row.find('div', 'comment').find_all('span'):
                 comment_content = comment_row.find(
@@ -305,69 +247,40 @@ async def scrape_post(post_id, feed_id):
 
             # Otherwise, get preceding comment in comment tree
             else:
-                cursor.execute(
-                    """
-                      SELECT id
-                        FROM comment
-                             JOIN feed_comment
-                               ON feed_comment.comment_id = comment.id
-                       WHERE level = %(level)s
-                         AND feed_id = %(feed_id)s
-                    ORDER BY feed_rank
-                       LIMIT 1;
-                    """,
-                    {'level': level - 1,
-                    'feed_id': feed_id}
-                )
-
-                parent_comment = cursor.fetchone()[0]
+                parent_comment = session.query(models.Comment).with_entities(
+                    models.Comment.id).join(models.FeedComment).filter(
+                    models.Comment.level == (level - 1)).filter(
+                    models.FeedComment.feed_id == feed_id).filter(
+                    models.Comment.post_id == post_id).order_by(
+                    models.FeedComment.feed_rank).limit(1).one()[0]
 
             # Get username of user who posted comment
             try:
                 comment_username = comment_row.find('a', 'hnuser').get_text()
+
             except AttributeError:
                 comment_username = ''
 
             # Add scraped comment data to database
-            cursor.execute(
-                """
-                INSERT INTO comment
-                            (id, content, created, level, parent_comment,
-                            post_id, total_word_count, username, word_counts)
-                     VALUES (%(id)s, %(content)s, %(created)s, %(level)s,
-                            %(parent_comment)s, %(post_id)s,
-                            %(total_word_count)s, %(username)s,
-                            to_tsvector('simple_english', LOWER(%(content)s)));
-                """,
-                {'id': comment_id,
-                'content': comment_content,
-                'created': comment_created,
-                'level': level,
-                'parent_comment': parent_comment,
-                'post_id': post_id,
-                'total_word_count': total_word_count,
-                'username': comment_username}
-                )
+            comment = models.Comment(content=comment_content,
+                created=comment_created, id=comment_id, level=level,
+                parent_comment=parent_comment, post_id=post_id,
+                total_word_count=total_word_count, username=comment_username,
+                word_counts=func.to_tsvector('simple_english',
+                comment_content.lower()))
+
+            session.add(comment)
 
         # Increment comment feed rank to get current comment's rank
         comment_feed_rank += 1
 
         # Add feed-based comment data to database
-        cursor.execute(
-            """
-            INSERT INTO feed_comment
-                        (comment_id, feed_id, feed_rank)
-                 VALUES (%(comment_id)s, %(feed_id)s, %(feed_rank)s);
-            """,
-            {'comment_id': comment_id,
-            'feed_id': feed_id,
-            'feed_rank': comment_feed_rank}
-            )
+        feed_comment = models.FeedComment(comment_id=comment_id,
+            feed_id=feed_id, feed_rank=comment_feed_rank)
 
-    conn.commit()
+        session.add(feed_comment)
 
-    cursor.close()
-    conn.close()
+    session.commit()
 
     print('Post ' + str(post_id) + ' and its comments scraped')
 
@@ -375,234 +288,131 @@ async def scrape_post(post_id, feed_id):
 
 
 def get_comment(comment_id):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get comment from database
-    cursor.execute(
-        """
-          SELECT comment.content, comment.created, comment.level,
-                 comment.parent_comment, comment.post_id, comment.username,
-                 feed_comment.feed_rank
-            FROM comment
-                 JOIN feed_comment
-                   ON feed_comment.comment_id = comment.id
-           WHERE comment.id = %(comment_id)s
-        ORDER BY feed_id
-           LIMIT 1;
-        """,
-        {'comment_id': comment_id}
-        )
+    try:
+        comment = session.query(models.Comment).with_entities(
+            models.Comment.content, models.Comment.created,
+            models.Comment.level, models.Comment.parent_comment,
+            models.Comment.post_id, models.Comment.username,
+            models.FeedComment.feed_rank).join(models.FeedComment).filter(
+            models.Comment.id == comment_id).order_by(
+            models.FeedComment.feed_id.desc()).limit(1).one()
 
-    comment = cursor.fetchone()
+        session.close()
 
-    if not comment:
+        return jsonify(comment._asdict())
+
+    # Return error if comment not returned from query
+    except NoResultFound:
+        session.close()
+
         return make_response('Comment not found', 404)
-
-    else:
-        comment = dict(comment)
-
-    cursor.close()
-    conn.close()
-
-    return jsonify(comment)
 
 
 def get_post(post_id):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get post from database
-    cursor.execute(
-        """
-          SELECT post.created, post.link, post.title, post.type, post.username,
-                 post.website, feed_post.feed_rank, feed_post.point_count,
-                 feed_post.comment_count
-            FROM post
-                 JOIN feed_post
-                   ON feed_post.post_id = post.id
-           WHERE post.id = %(post_id)s
-        ORDER BY feed_id
-           LIMIT 1;
-        """,
-        {'post_id': post_id}
-        )
+    try:
+        post = session.query(models.Post).with_entities(models.Post.created,
+            models.Post.link, models.Post.title, models.Post.type,
+            models.Post.username, models.Post.website,
+            models.FeedPost.comment_count, models.FeedPost.feed_rank,
+            models.FeedPost.point_count).join(models.FeedPost).filter(
+            models.Post.id == post_id).order_by(
+            models.FeedPost.feed_id.desc()).limit(1).one()
 
-    post = cursor.fetchone()
+        session.close()
 
-    if not post:
+        return jsonify(post._asdict())
+
+    # Return error if post not returned from query
+    except NoResultFound:
+        session.close()
+
         return make_response('Post not found', 404)
-
-    else:
-        post = dict(post)
-
-    cursor.close()
-    conn.close()
-
-    return jsonify(post)
 
 
 def get_feeds(time_period):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get requested feed(s) from database based on passed time value
     if time_period == 'day':
-        cursor.execute(
-            """
-            SELECT id
-              FROM feed
-             WHERE created > TIMESTAMP 'yesterday';
-            """
-            )
-
-        feed_ids = [feed_id[0] for feed_id in cursor.fetchall()]
+        feed_ids = [row.id for row in session.query(models.Feed).filter(
+            models.Feed.created > date.today()).all()]
 
     elif time_period == 'week':
-        cursor.execute(
-            """
-            SELECT id
-              FROM feed
-             WHERE created BETWEEN
-                   now()::DATE-EXTRACT(DOW FROM now())::INT-7
-                   AND now()::DATE-EXTRACT(DOW from now())::INT;
-            """
-            )
-
-        feed_ids = [feed_id[0] for feed_id in cursor.fetchall()]
+        feed_ids = [row.id for row in session.query(models.Feed).filter(
+            models.Feed.created > date.today() - timedelta(days=6)).all()]
 
     elif time_period == 'all':
-        cursor.execute(
-            """
-            SELECT id
-              FROM feed;
-            """
-            )
+        feed_ids = [row.id for row in session.query(models.Feed).all()]
 
-        feed_ids = [feed_id[0] for feed_id in cursor.fetchall()]
-
+    # Return most recent feed_id if time_period is 'hour' or unspecified
     else:
-        cursor.execute(
-            """
-              SELECT id
-                FROM feed
-            ORDER BY id DESC
-               LIMIT 1;
-            """
-            )
-
-        feed_ids = [feed_id[0] for feed_id in cursor.fetchall()]
-
-    cursor.close()
-    conn.close()
+        feed_ids = [row.id for row in session.query(models.Feed).order_by(
+            models.Feed.created.desc()).limit(1)]
 
     return feed_ids
 
 
 def get_average_comment_count(feed_ids):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get average comment count
-    cursor.execute(
-        """
-        SELECT avg(comment_count)
-          FROM feed_post
-         WHERE feed_id = ANY(%(feed_id)s);
-        """,
-        {'feed_id': feed_ids}
-        )
+    average = round(session.query(
+        func.avg(models.FeedPost.comment_count)).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).one()[0])
 
-    average = round(cursor.fetchone()[0])
-
-    cursor.close()
-    conn.close()
+    session.close()
 
     return jsonify(average)
 
 
 def get_average_comment_tree_depth(feed_ids):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get average comment level
-    cursor.execute(
-        """
-        SELECT avg(level)
-          FROM comment
-               JOIN feed_comment
-                 ON feed_comment.comment_id = comment.id
-         WHERE feed_id = ANY(%(feed_id)s);
-        """,
-        {'feed_id': feed_ids}
-        )
+    average = round(session.query(func.avg(models.Comment.level)).join(
+        models.FeedComment).filter(
+        models.FeedComment.feed_id.in_(feed_ids)).one()[0])
 
-    depth = round(cursor.fetchone()[0])
+    session.close()
 
-    cursor.close()
-    conn.close()
-
-    return jsonify(depth)
+    return jsonify(average)
 
 
 def get_average_comment_word_count(feed_ids):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get average comment word count
-    cursor.execute(
-        """
-        SELECT avg(total_word_count)
-          FROM comment
-               JOIN feed_comment
-                 ON feed_comment.comment_id = comment.id
-         WHERE feed_id = ANY(%(feed_id)s);
-        """,
-        {'feed_id': feed_ids}
-        )
+    average = round(session.query(func.avg(
+        models.Comment.total_word_count)).join(models.FeedComment).filter(
+        models.FeedComment.feed_id.in_(feed_ids)).one()[0])
 
-    average = round(cursor.fetchone()[0])
-
-    cursor.close()
-    conn.close()
+    session.close()
 
     return jsonify(average)
 
 
 def get_average_point_count(feed_ids):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
+    # Connect to database
+    session = models.Session()
 
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Get average post point count
+    average = round(session.query(func.avg(
+        models.FeedPost.point_count)).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).one()[0])
 
-    # Get average point count for posts
-    cursor.execute(
-        """
-        SELECT avg(point_count)
-          FROM post
-               JOIN feed_post
-                 ON feed_post.post_id = post.id
-         WHERE feed_id = ANY(%(feed_id)s);
-        """,
-        {'feed_id': feed_ids}
-        )
-
-    average = round(cursor.fetchone()[0])
-
-    cursor.close()
-    conn.close()
+    session.close()
 
     return jsonify(average)
 
@@ -612,41 +422,29 @@ def get_comments_with_highest_word_counts(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get comments with highest word counts
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                    SELECT DISTINCT ON (comment.id)
-                           comment.id, comment.content, comment.created,
-                           comment.level, comment.parent_comment,
-                           comment.post_id, comment.username,
-                           comment.totaL_word_count, feed_comment.feed_rank
-                      FROM comment
-                           JOIN feed_comment
-                             ON feed_comment.comment_id = comment.id
-                     WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY comment.id, total_word_count DESC
-            ) comment_table
-        ORDER BY total_word_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.Comment).with_entities(
+        models.Comment.content, models.Comment.created, models.Comment.id,
+        models.Comment.level, models.Comment.parent_comment,
+        models.Comment.post_id, models.Comment.username,
+        models.Comment.total_word_count, models.FeedComment.feed_rank).join(
+        models.FeedComment).filter(
+        models.FeedComment.feed_id.in_(feed_ids)).order_by(
+        models.Comment.id, models.Comment.total_word_count.desc()).distinct(
+        models.Comment.id).subquery()
+
+    query = session.query(subquery).order_by(
+        subquery.columns.get('total_word_count').desc()).limit(count)
+
+    session.close()
 
     comments = []
 
-    for row in cursor.fetchall():
-        comments.append(dict(row))
-
-    cursor.close()
-    conn.close()
+    for row in query:
+        comments.append(row._asdict())
 
     return jsonify(comments)
 
@@ -656,13 +454,11 @@ def get_most_frequent_comment_words(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
+    # Connect to database
+    session = models.Session()
 
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
-
-    # Get highest-frequency words used in comments, excluding stop words
-    cursor.execute(
+    # Get highest frequency words used in comments, excluding stop words
+    query = session.execute(
         """
           SELECT *
             FROM ts_stat(
@@ -673,57 +469,44 @@ def get_most_frequent_comment_words(feed_ids):
                                FROM comment
                                     JOIN feed_comment
                                       ON feed_comment.comment_id = comment.id
-                              WHERE feed_id = ANY(%(feed_id)s)
+                              WHERE feed_id = ANY(:feed_id)
                            ORDER BY id, word_counts DESC
-                     ) comment_table $$)
+                     ) comment_table$$
+            )
            WHERE LENGTH (word) > 1
         ORDER BY nentry DESC
-           LIMIT %(count)s;
+           LIMIT :count;
         """,
         {'feed_id': feed_ids,
         'count': count}
-        )
+        ).fetchall()
+
+    session.close()
 
     words = []
 
-    for row in cursor.fetchall():
+    for row in query:
         words.append(dict(row))
-
-    cursor.close()
-    conn.close()
 
     return jsonify(words)
 
 
 def get_deepest_comment_tree(feed_ids):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get highest level comment (deepest in comment tree)
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                  SELECT DISTINCT ON (comment.id)
-                         comment.id, comment.content, comment.created,
-                         comment.level, comment.parent_comment,
-                         comment.post_id, comment.username,
-                         feed_comment.feed_rank
-                    FROM comment
-                         JOIN feed_comment
-                           ON feed_comment.comment_id = comment.id
-                   WHERE feed_id = ANY(%(feed_id)s)
-                ORDER BY comment.id, level DESC
-            ) comment_table
-        ORDER BY level DESC
-           LIMIT 1;
-        """,
-        {'feed_id': feed_ids}
-        )
+    subquery = session.query(models.Comment).with_entities(
+        models.Comment.content, models.Comment.created, models.Comment.id,
+        models.Comment.level, models.Comment.parent_comment,
+        models.Comment.post_id, models.Comment.username,
+        models.FeedComment.feed_rank).join(models.FeedComment).filter(
+        models.FeedComment.feed_id.in_(feed_ids)).order_by(
+        models.Comment.id, models.Comment.level.desc()).distinct(
+        models.Comment.id).subquery()
 
-    comment = dict(cursor.fetchone())
+    comment = session.query(subquery).order_by(
+        subquery.columns.get('level').desc()).limit(1).one()._asdict()
 
     comment['tree'] = []
 
@@ -731,19 +514,18 @@ def get_deepest_comment_tree(feed_ids):
     while comment['parent_comment']:
         comment['tree'].append(comment['parent_comment'])
 
-        cursor.execute(
-            """
-            SELECT parent_comment
-              FROM comment
-             WHERE id = %(id)s;
-            """,
-            {'id': comment['parent_comment']}
-            )
+        try:
+            comment['parent_comment'] = session.query(
+                models.Comment).with_entities(
+                models.Comment.parent_comment).filter(
+                models.Comment.id == comment['parent_comment']).one()[0]
 
-        comment['parent_comment'] = cursor.fetchone()[0]
+        except NoResultFound:
+            comment['parent_comment'] = ''
 
-    cursor.close()
-    conn.close()
+    session.close()
+
+    comment.pop('parent_comment')
 
     return jsonify(comment)
 
@@ -753,41 +535,29 @@ def get_posts_with_highest_comment_counts(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get posts with highest comment counts
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                  SELECT DISTINCT ON (post.id)
-                         post.id, post.created, post.link, post.title,
-                         post.type, post.username, post.website,
-                         feed_post.feed_rank, feed_post.point_count,
-                         feed_post.comment_count
-                    FROM post
-                         JOIN feed_post
-                           ON feed_post.post_id = post.id
-                   WHERE feed_id = ANY(%(feed_id)s)
-                ORDER BY post.id, comment_count DESC
-            ) post_table
-        ORDER BY comment_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.Post).with_entities(
+        models.Post.created, models.Post.id, models.Post.link,
+        models.Post.title, models.Post.type, models.Post.username,
+        models.Post.website, models.FeedPost.comment_count,
+        models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+        models.FeedPost).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).order_by(
+        models.Post.id, models.FeedPost.comment_count.desc()).distinct(
+        models.Post.id).subquery()
+
+    query = session.query(subquery).order_by(
+        subquery.columns.get('comment_count').desc()).limit(count)
+
+    session.close()
 
     posts = []
 
-    for row in cursor.fetchall():
-        posts.append(dict(row))
-
-    cursor.close()
-    conn.close()
+    for row in query:
+        posts.append(row._asdict())
 
     return jsonify(posts)
 
@@ -797,77 +567,56 @@ def get_posts_with_highest_point_counts(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get posts with highest point counts
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                  SELECT DISTINCT ON (post.id)
-                         post.id, post.created, post.link, post.title,
-                         post.type, post.username, post.website,
-                         feed_post.feed_rank, feed_post.point_count,
-                         feed_post.comment_count
-                    FROM post
-                         JOIN feed_post
-                           ON feed_post.post_id = post.id
-                   WHERE feed_id = ANY(%(feed_id)s)
-                ORDER BY post.id, feed_post.point_count DESC
-            ) post_table
-        ORDER BY point_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.Post).with_entities(
+        models.Post.created, models.Post.id, models.Post.link,
+        models.Post.title, models.Post.type, models.Post.username,
+        models.Post.website, models.FeedPost.comment_count,
+        models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+        models.FeedPost).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).order_by(
+        models.Post.id, models.FeedPost.point_count.desc()).distinct(
+        models.Post.id).subquery()
+
+    query = session.query(subquery).order_by(
+        subquery.columns.get('point_count').desc()).limit(count)
+
+    session.close()
 
     posts = []
 
-    for row in cursor.fetchall():
-        posts.append(dict(row))
-
-    cursor.close()
-    conn.close()
+    for row in query:
+        posts.append(row._asdict())
 
     return jsonify(posts)
 
 
 def get_post_types(feed_ids):
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
+    # Connect to database
+    session = models.Session()
 
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Get count of types of posts ('article' vs. 'ask' vs. 'job' vs. 'show')
+    subquery = session.query(models.Post).with_entities(
+        models.Post.id, models.Post.type).join(
+        models.FeedPost).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).order_by(
+        models.Post.id, models.FeedPost.feed_id.desc()).distinct(
+        models.Post.id).subquery()
 
-    # Get count of type of posts ('article' vs. 'ask' vs. 'job' vs. 'show')
-    cursor.execute(
-        """
-          SELECT type, COUNT(*) AS type_count
-            FROM (
-                    SELECT DISTINCT ON (post.id)
-                           post.id, post.type, feed_post.feed_id
-                      FROM post
-                           JOIN feed_post
-                             ON feed_post.post_id = post.id
-                     WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY post.id, feed_post.feed_id DESC
-            ) post_table
-        GROUP BY type
-        ORDER BY type_count DESC;
-        """,
-        {'feed_id': feed_ids}
-        )
+    query = session.query(subquery).with_entities(
+        subquery.columns.get('type'),
+        func.count('*').label("type_count")).group_by(
+        subquery.columns.get('type')).order_by(desc('type_count'))
+
+    session.close()
 
     types = []
 
-    for row in cursor.fetchall():
-        types.append(dict(row))
-
-    cursor.close()
-    conn.close()
+    for row in query:
+        types.append(row._asdict())
 
     return jsonify(types)
 
@@ -877,13 +626,11 @@ def get_most_frequent_title_words(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get highest-frequency words used in post titles, excluding stop words
-    cursor.execute(
+    query = session.execute(
         """
           SELECT *
             FROM ts_stat(
@@ -894,25 +641,25 @@ def get_most_frequent_title_words(feed_ids):
                                FROM post
                                     JOIN feed_post
                                       ON feed_post.post_id = post.id
-                              WHERE feed_id = ANY(%(feed_id)s)
+                              WHERE feed_id = ANY(:feed_id)
                            ORDER BY post.id, feed_post.feed_id DESC
-                     ) post_table $$)
+                     ) post_table$$
+            )
            WHERE word NOT IN ('ask', 'hn', 'show')
              AND LENGTH (word) > 1
         ORDER BY nentry DESC
-           LIMIT %(count)s;
+           LIMIT :count;
         """,
         {'feed_id': feed_ids,
         'count': count}
-        )
+        ).fetchall()
+
+    session.close()
 
     words = []
 
-    for row in cursor.fetchall():
+    for row in query:
         words.append(dict(row))
-
-    cursor.close()
-    conn.close()
 
     return jsonify(words)
 
@@ -922,41 +669,30 @@ def get_top_posts(feed_ids):
     # null
     count = int(request.args.get('count', 3))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get posts in order of rank
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                  SELECT DISTINCT ON (post.id)
-                         post.id, post.created, post.link, post.title,
-                         post.type, post.username, post.website,
-                         feed_post.feed_rank, feed_post.point_count,
-                         feed_post.comment_count
-                    FROM post
-                         JOIN feed_post
-                           ON feed_post.post_id = post.id
-                   WHERE feed_id = ANY(%(feed_id)s)
-                ORDER BY post.id, feed_rank
-            ) post_table
-        ORDER BY feed_rank
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.Post).with_entities(
+        models.Post.created, models.Post.id, models.Post.link,
+        models.Post.title, models.Post.type, models.Post.username,
+        models.Post.website, models.FeedPost.comment_count,
+        models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+        models.FeedPost).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).order_by(
+        models.Post.id, models.FeedPost.feed_rank,
+        models.FeedPost.point_count.desc()).distinct(models.Post.id).subquery()
+
+    query = session.query(subquery).order_by(
+        subquery.columns.get('feed_rank'),
+        subquery.columns.get('point_count').desc()).limit(count)
+
+    session.close()
 
     posts = []
 
-    for row in cursor.fetchall():
-        posts.append(dict(row))
-
-    cursor.close()
-    conn.close()
+    for row in query:
+        posts.append(row._asdict())
 
     return jsonify(posts)
 
@@ -966,40 +702,30 @@ def get_top_websites(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get websites that highest number of posts are from
-    cursor.execute(
-        """
-          SELECT website, COUNT(*) AS link_count
-            FROM (
-                    SELECT DISTINCT ON (post.id)
-                           post.id, post.website, feed_post.feed_id
-                      FROM post
-                           JOIN feed_post
-                             ON feed_post.post_id = post.id
-                     WHERE feed_id = ANY(%(feed_id)s)
-                           AND website != ''
-                  ORDER BY post.id, feed_post.feed_id DESC
-            ) post_table
-        GROUP BY website
-        ORDER BY link_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.Post).with_entities(
+        models.Post.id, models.Post.website).join(
+        models.FeedPost).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).filter(
+        models.Post.website != '').order_by(
+        models.Post.id, models.FeedPost.feed_id.desc()).distinct(
+        models.Post.id).subquery()
+
+    query = session.query(subquery).with_entities(
+        subquery.columns.get('website'),
+        func.count('*').label("link_count")).group_by(
+        subquery.columns.get('website')).order_by(desc('link_count')).limit(
+        count)
+
+    session.close()
 
     websites = []
 
-    for row in cursor.fetchall():
-        websites.append(dict(row))
-
-    cursor.close()
-    conn.close()
+    for row in query:
+        websites.append(row._asdict())
 
     return jsonify(websites)
 
@@ -1009,38 +735,30 @@ def get_users_with_most_comments(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get users who posted the most comments
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                    SELECT DISTINCT ON (username)
-                           username, comment_count, word_count
-                      FROM user_content_counts
-                     WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY username, comment_count DESC
-            ) user_table
-        ORDER BY comment_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.UserContentCounts).with_entities(
+        models.UserContentCounts.comment_count,
+        models.UserContentCounts.username,
+        models.UserContentCounts.word_count).filter(
+        models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
+        models.UserContentCounts.username,
+        models.UserContentCounts.comment_count.desc()).distinct(
+        models.UserContentCounts.username).subquery()
 
-    usernames = []
+    query = session.query(subquery).order_by(
+        subquery.columns.get('comment_count').desc()).limit(count)
 
-    for row in cursor.fetchall():
-        usernames.append(dict(row))
+    session.close()
 
-    cursor.close()
-    conn.close()
+    users = []
 
-    return jsonify(usernames)
+    for row in query:
+        users.append(row._asdict())
+
+    return jsonify(users)
 
 
 def get_users_with_most_posts(feed_ids):
@@ -1048,42 +766,31 @@ def get_users_with_most_posts(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get users who posted the most posts
-    cursor.execute(
-        """
-          SELECT username, COUNT(username) AS post_count
-            FROM (
-                    SELECT DISTINCT ON (post.id)
-                           post.id, post.username, feed_post.feed_id
-                      FROM post
-                           JOIN feed_post
-                             ON feed_post.post_id = post.id
-                     WHERE feed_id = ANY(%(feed_id)s)
-                           AND username != ''
-                  ORDER BY post.id, feed_post.feed_id DESC
-            ) post_table
-        GROUP BY username
-        ORDER BY post_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.Post).with_entities(
+        models.Post.id, models.Post.username).join(models.FeedPost).filter(
+        models.FeedPost.feed_id.in_(feed_ids)).filter(
+        models.Post.username != '').order_by(
+        models.Post.id, models.FeedPost.feed_id.desc()).distinct(
+        models.Post.id).subquery()
 
-    usernames = []
+    query = session.query(subquery).with_entities(
+        subquery.columns.get('username'),
+        func.count('*').label("post_count")).group_by(
+        subquery.columns.get('username')).order_by(desc('post_count')).limit(
+        count)
 
-    for row in cursor.fetchall():
-        usernames.append(dict(row))
+    session.close()
 
-    cursor.close()
-    conn.close()
+    users = []
 
-    return jsonify(usernames)
+    for row in query:
+        users.append(row._asdict())
+
+    return jsonify(users)
 
 
 def get_users_with_most_words_in_comments(feed_ids):
@@ -1091,35 +798,27 @@ def get_users_with_most_words_in_comments(feed_ids):
     # null
     count = int(request.args.get('count', 1))
 
-    # Set up database connection wtih environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
-
-    cursor = conn.cursor(cursor_factory=pg.extras.DictCursor)
+    # Connect to database
+    session = models.Session()
 
     # Get users who posted the most words in comments
-    cursor.execute(
-        """
-          SELECT *
-            FROM (
-                    SELECT DISTINCT ON (username)
-                           username, comment_count, word_count
-                      FROM user_content_counts
-                     WHERE feed_id = ANY(%(feed_id)s)
-                  ORDER BY username, word_count DESC
-            ) user_table
-        ORDER BY word_count DESC
-           LIMIT %(count)s;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        )
+    subquery = session.query(models.UserContentCounts).with_entities(
+        models.UserContentCounts.comment_count,
+        models.UserContentCounts.username,
+        models.UserContentCounts.word_count).filter(
+        models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
+        models.UserContentCounts.username,
+        models.UserContentCounts.word_count.desc()).distinct(
+        models.UserContentCounts.username).subquery()
 
-    usernames = []
+    query = session.query(subquery).order_by(
+        subquery.columns.get('word_count').desc()).limit(count)
 
-    for row in cursor.fetchall():
-        usernames.append(dict(row))
+    session.close()
 
-    cursor.close()
-    conn.close()
+    users = []
 
-    return jsonify(usernames)
+    for row in query:
+        users.append(row._asdict())
+
+    return jsonify(users)
