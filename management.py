@@ -2,98 +2,99 @@
 import argparse
 import getpass
 import os
-import psycopg2 as pg
 
 from crontab import CronTab
+from datetime import datetime
+from sqlalchemy import create_engine, Column, ForeignKey, Index, Integer, \
+    MetaData, String, Table
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.types import Enum, TEXT, TIMESTAMP
 
-from hacker_news import hacker_news
+from hacker_news import hacker_news, models
 
 
 def initialize_database():
-    # Set up database connection with environment variable
-    conn = pg.connect(os.environ['DB_CONNECTION'])
+    # Connect to database
+    session = models.Session()
 
-    cursor = conn.cursor()
+    metadata = MetaData()
 
-    # Create 'post_type' type, database tables, and custom text dictionary for
-    # detecting stop words without word stemming
-    cursor.execute(
+    # Create post_type Enum type
+    post_type = Enum('article', 'ask', 'job', 'show', name='post_type',
+        metadata=metadata)
+
+    # Create feed table
+    feed = Table('feed', metadata,
+        Column('id', Integer, primary_key=True, nullable=False,
+            index=True),
+        Column('created', TIMESTAMP(timezone=False),
+            default=datetime.utcnow, nullable=False)
+        )
+
+    # Create post table
+    post = Table('post', metadata,
+        Column('id', Integer, primary_key=True, nullable=False),
+        Column('created', TIMESTAMP(timezone=False),
+            default=datetime.utcnow, nullable=False),
+        Column('link', TEXT, nullable=False),
+        Column('title', TEXT, nullable=False),
+        Column('type', post_type, nullable=False),
+        Column('username', TEXT),
+        Column('website', TEXT),
+        Index('post_index', 'id', 'username')
+        )
+
+    # Create feed_post table
+    feed_post = Table('feed_post', metadata,
+        Column('feed_id', Integer,
+            ForeignKey('feed.id', ondelete='CASCADE'), primary_key=True,
+            nullable=False),
+        Column('post_id', Integer,
+            ForeignKey('post.id', ondelete='CASCADE'), primary_key=True,
+            nullable=False),
+        Column('comment_count', Integer, default=0, nullable=False),
+        Column('feed_rank', Integer, nullable=False),
+        Column('point_count', Integer, default=0, nullable=False),
+        Index('feed_post_index', 'comment_count', 'feed_id', 'feed_rank',
+            'point_count', 'post_id')
+        )
+
+    # Create comment table
+    comment = Table('comment', metadata,
+        Column('id', Integer, primary_key=True, nullable=False),
+        Column('content', TEXT, nullable=False),
+        Column('created', TIMESTAMP(timezone=False),
+            default=datetime.utcnow, nullable=False),
+        Column('level', Integer, nullable=False),
+        Column('parent_comment', Integer,
+            ForeignKey('comment.id', ondelete='CASCADE'), nullable=False),
+        Column('post_id', Integer,
+            ForeignKey('post.id', ondelete='CASCADE'), nullable=False),
+        Column('total_word_count', Integer, default=0, nullable=False),
+        Column('username', TEXT, nullable=False),
+        Column('word_counts', TSVECTOR, nullable=False),
+        Index('comment_index', 'id', 'level', 'parent_comment', 'post_id',
+            'total_word_count', 'username')
+        )
+
+    # Create feed_comment table
+    feed_comment = Table('feed_comment', metadata,
+        Column('comment_id', Integer,
+            ForeignKey('comment.id', ondelete='CASCADE'), primary_key=True,
+            nullable=False),
+        Column('feed_id', Integer,
+            ForeignKey('feed.id', ondelete='CASCADE'), primary_key=True,
+            nullable=False),
+        Column('feed_rank', Integer, nullable=False),
+        Index('feed_comment_index', 'comment_id', 'feed_id', 'feed_rank')
+        )
+
+    metadata.create_all(models.engine, checkfirst=True)
+
+    # Create materialized view and custom text dictionary for detecting stop
+    # words without word stemming
+    session.execute(
         """
-        DO $$
-        BEGIN
-            IF NOT EXISTS
-                          (SELECT 1
-                             FROM pg_type
-                            WHERE typname = 'post_type')
-                     THEN CREATE TYPE post_type
-                       AS ENUM ('article', 'ask', 'job', 'show');
-            END IF;
-        END
-        $$;
-
-        CREATE TABLE IF NOT EXISTS feed (
-            PRIMARY KEY (id),
-            created TIMESTAMP DEFAULT (now() at time zone 'utc') NOT NULL,
-            id      SERIAL    NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS feed_id_index
-               ON feed (id);
-
-        CREATE TABLE IF NOT EXISTS post (
-            PRIMARY KEY (id),
-            created  TIMESTAMP NOT NULL,
-            id       INT       NOT NULL,
-            link     TEXT      NOT NULL,
-            title    TEXT      NOT NULL,
-            type     POST_TYPE NOT NULL,
-            username TEXT,
-            website  TEXT
-        );
-
-        CREATE INDEX IF NOT EXISTS post_index
-               ON post (id, username);
-
-        CREATE TABLE IF NOT EXISTS feed_post (
-            comment_count INT DEFAULT 0           NOT NULL,
-            feed_id       INT REFERENCES feed(id) ON DELETE CASCADE,
-            feed_rank     INT NOT NULL,
-            point_count   INT DEFAULT 0           NOT NULL,
-            post_id       INT REFERENCES post(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS feed_post_index
-               ON feed_post (comment_count, feed_id, feed_rank, point_count,
-                             post_id);
-
-        CREATE TABLE IF NOT EXISTS comment (
-            PRIMARY KEY (id),
-            content          TEXT      NOT NULL,
-            created          TIMESTAMP NOT NULL,
-            id               INT       NOT NULL,
-            level            INT       NOT NULL,
-            parent_comment   INT       REFERENCES comment(id)
-                             ON DELETE CASCADE,
-            post_id          INT       REFERENCES post(id)
-                             ON DELETE CASCADE,
-            total_word_count INT       DEFAULT 0              NOT NULL,
-            username         TEXT      NOT NULL,
-            word_counts      TSVECTOR  NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS comment_index
-               ON comment (id, level, parent_comment, post_id,
-                           total_word_count, username);
-
-        CREATE TABLE IF NOT EXISTS feed_comment (
-            comment_id INT REFERENCES comment(id) ON DELETE CASCADE,
-            feed_id    INT REFERENCES feed(id)    ON DELETE CASCADE,
-            feed_rank  INT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS feed_comment_index
-               ON feed_comment (comment_id, feed_id, feed_rank);
-
         CREATE MATERIALIZED VIEW IF NOT EXISTS user_content_counts AS
                  SELECT comment_table.username,
                         count(comment_table.username) AS comment_count,
@@ -148,10 +149,9 @@ def initialize_database():
         """
         )
 
-    conn.commit()
+    session.commit()
 
-    cursor.close()
-    conn.close()
+    session.close()
 
     print('Database ' + os.environ['DB_NAME'] + ' initialized successfully.')
 
