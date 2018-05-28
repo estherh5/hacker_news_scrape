@@ -41,11 +41,6 @@ def scrape_loop():
 
     loop.close()
 
-    # Refresh materialized view
-    session.execute('REFRESH MATERIALIZED VIEW user_content_counts')
-
-    session.commit()
-
     session.close()
 
     print('Scrape completed for first three pages of Hacker News.')
@@ -887,29 +882,35 @@ def get_users_with_most_comments(feed_ids):
     # Get users who posted the most comments, filtering by feed_ids if
     # specified
     if feed_ids:
-        subquery = session.query(models.UserContentCounts).with_entities(
-            models.UserContentCounts.comment_count,
-            models.UserContentCounts.username,
-            models.UserContentCounts.word_count).filter(
-            models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
-            models.UserContentCounts.username,
-            models.UserContentCounts.comment_count.desc()).distinct(
-            models.UserContentCounts.username).subquery()
+        subquery = session.query(models.Comment).with_entities(
+            models.Comment.id, models.Comment.total_word_count,
+            models.Comment.username).join(models.FeedComment).filter(
+            models.FeedComment.feed_id.in_(feed_ids)).filter(
+            models.Comment.username != '').order_by(models.Comment.id,
+            models.FeedComment.feed_id.desc()).distinct(
+            models.Comment.id).subquery()
 
-        query = session.query(subquery).order_by(
-            subquery.columns.get('comment_count').desc()).limit(count)
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('username'),
+            func.count('*').label("comment_count"), func.sum(
+                subquery.columns.get('total_word_count')
+            ).label("word_count")).group_by(
+            subquery.columns.get('username')).order_by(
+            desc('comment_count')).limit(count)
 
     else:
-        subquery = session.query(models.UserContentCounts).with_entities(
-            models.UserContentCounts.comment_count,
-            models.UserContentCounts.username,
-            models.UserContentCounts.word_count).order_by(
-            models.UserContentCounts.username,
-            models.UserContentCounts.comment_count.desc()).distinct(
-            models.UserContentCounts.username).subquery()
+        subquery = session.query(models.Comment).with_entities(
+            models.Comment.id, models.Comment.total_word_count,
+            models.Comment.username).filter(
+            models.Comment.username != '').subquery()
 
-        query = session.query(subquery).order_by(
-            subquery.columns.get('comment_count').desc()).limit(count)
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('username'),
+            func.count('*').label("comment_count"), func.sum(
+                subquery.columns.get('total_word_count')
+            ).label("word_count")).group_by(
+            subquery.columns.get('username')).order_by(
+            desc('comment_count')).limit(count)
 
     session.close()
 
@@ -975,29 +976,35 @@ def get_users_with_most_words_in_comments(feed_ids):
     # Get users who posted the most words in comments, filtering by feed_ids if
     # specified
     if feed_ids:
-        subquery = session.query(models.UserContentCounts).with_entities(
-            models.UserContentCounts.comment_count,
-            models.UserContentCounts.username,
-            models.UserContentCounts.word_count).filter(
-            models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
-            models.UserContentCounts.username,
-            models.UserContentCounts.word_count.desc()).distinct(
-            models.UserContentCounts.username).subquery()
+        subquery = session.query(models.Comment).with_entities(
+            models.Comment.id, models.Comment.total_word_count,
+            models.Comment.username).join(models.FeedComment).filter(
+            models.FeedComment.feed_id.in_(feed_ids)).filter(
+            models.Comment.username != '').order_by(models.Comment.id,
+            models.FeedComment.feed_id.desc()).distinct(
+            models.Comment.id).subquery()
 
-        query = session.query(subquery).order_by(
-            subquery.columns.get('word_count').desc()).limit(count)
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('username'),
+            func.count('*').label("comment_count"), func.sum(
+                subquery.columns.get('total_word_count')
+            ).label("word_count")).group_by(
+            subquery.columns.get('username')).order_by(
+            desc('word_count')).limit(count)
 
     else:
-        subquery = session.query(models.UserContentCounts).with_entities(
-            models.UserContentCounts.comment_count,
-            models.UserContentCounts.username,
-            models.UserContentCounts.word_count).order_by(
-            models.UserContentCounts.username,
-            models.UserContentCounts.word_count.desc()).distinct(
-            models.UserContentCounts.username).subquery()
+        subquery = session.query(models.Comment).with_entities(
+            models.Comment.id, models.Comment.total_word_count,
+            models.Comment.username).filter(
+            models.Comment.username != '').subquery()
 
-        query = session.query(subquery).order_by(
-            subquery.columns.get('word_count').desc()).limit(count)
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('username'),
+            func.count('*').label("comment_count"), func.sum(
+                subquery.columns.get('total_word_count')
+            ).label("word_count")).group_by(
+            subquery.columns.get('username')).order_by(
+            desc('word_count')).limit(count)
 
     session.close()
 
