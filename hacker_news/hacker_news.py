@@ -350,8 +350,9 @@ def get_feeds(time_period):
         feed_ids = [row.id for row in session.query(models.Feed).filter(
             models.Feed.created > date.today() - timedelta(days=6)).all()]
 
+    # Return no feed_ids if 'all' is specified so all data can be queried
     elif time_period == 'all':
-        feed_ids = [row.id for row in session.query(models.Feed).all()]
+        feed_ids = None
 
     # Return most recent feed_id if time_period is 'hour' or unspecified
     else:
@@ -365,10 +366,15 @@ def get_average_comment_count(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get average comment count
-    average = round(session.query(
-        func.avg(models.FeedPost.comment_count)).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).one()[0])
+    # Get average comment count, filtering by feed_ids if specified
+    if feed_ids:
+        average = round(session.query(
+            func.avg(models.FeedPost.comment_count)).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).one()[0])
+
+    else:
+        average = round(session.query(
+            func.avg(models.FeedPost.comment_count)).one()[0])
 
     session.close()
 
@@ -379,10 +385,14 @@ def get_average_comment_tree_depth(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get average comment level
-    average = round(session.query(func.avg(models.Comment.level)).join(
-        models.FeedComment).filter(
-        models.FeedComment.feed_id.in_(feed_ids)).one()[0])
+    # Get average comment level, filtering by feed_ids if specified
+    if feed_ids:
+        average = round(session.query(func.avg(models.Comment.level)).join(
+            models.FeedComment).filter(
+            models.FeedComment.feed_id.in_(feed_ids)).one()[0])
+
+    else:
+        average = round(session.query(func.avg(models.Comment.level)).one()[0])
 
     session.close()
 
@@ -393,10 +403,15 @@ def get_average_comment_word_count(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get average comment word count
-    average = round(session.query(func.avg(
-        models.Comment.total_word_count)).join(models.FeedComment).filter(
-        models.FeedComment.feed_id.in_(feed_ids)).one()[0])
+    # Get average comment word count, filtering by feed_ids if specified
+    if feed_ids:
+        average = round(session.query(func.avg(
+            models.Comment.total_word_count)).join(models.FeedComment).filter(
+            models.FeedComment.feed_id.in_(feed_ids)).one()[0])
+
+    else:
+        average = round(session.query(func.avg(
+            models.Comment.total_word_count)).one()[0])
 
     session.close()
 
@@ -407,10 +422,15 @@ def get_average_point_count(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get average post point count
-    average = round(session.query(func.avg(
-        models.FeedPost.point_count)).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).one()[0])
+    # Get average post point count, filtering by feed_ids if specified
+    if feed_ids:
+        average = round(session.query(func.avg(
+            models.FeedPost.point_count)).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).one()[0])
+
+    else:
+        average = round(session.query(func.avg(
+            models.FeedPost.point_count)).one()[0])
 
     session.close()
 
@@ -425,19 +445,28 @@ def get_comments_with_highest_word_counts(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get comments with highest word counts
-    subquery = session.query(models.Comment).with_entities(
-        models.Comment.content, models.Comment.created, models.Comment.id,
-        models.Comment.level, models.Comment.parent_comment,
-        models.Comment.post_id, models.Comment.username,
-        models.Comment.total_word_count, models.FeedComment.feed_rank).join(
-        models.FeedComment).filter(
-        models.FeedComment.feed_id.in_(feed_ids)).order_by(
-        models.Comment.id, models.Comment.total_word_count.desc()).distinct(
-        models.Comment.id).subquery()
+    # Get comments with highest word counts, filtering by feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Comment).with_entities(
+            models.Comment.content, models.Comment.created, models.Comment.id,
+            models.Comment.level, models.Comment.parent_comment,
+            models.Comment.post_id, models.Comment.username,
+            models.Comment.total_word_count).join(models.FeedComment).filter(
+            models.FeedComment.feed_id.in_(feed_ids)).order_by(
+            models.Comment.id,
+            models.Comment.total_word_count.desc()).distinct(
+            models.Comment.id).subquery()
 
-    query = session.query(subquery).order_by(
-        subquery.columns.get('total_word_count').desc()).limit(count)
+        query = session.query(subquery).order_by(
+            subquery.columns.get('total_word_count').desc()).limit(count)
+
+    else:
+        query = session.query(models.Comment).with_entities(
+            models.Comment.content, models.Comment.created, models.Comment.id,
+            models.Comment.level, models.Comment.parent_comment,
+            models.Comment.post_id, models.Comment.username,
+            models.Comment.total_word_count).order_by(
+            models.Comment.total_word_count.desc()).limit(count)
 
     session.close()
 
@@ -457,29 +486,48 @@ def get_most_frequent_comment_words(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get highest frequency words used in comments, excluding stop words
-    query = session.execute(
-        """
-          SELECT *
-            FROM ts_stat(
-                 $$SELECT word_counts
-                     FROM (
-                             SELECT DISTINCT ON (id)
-                                    id, feed_id, word_counts
-                               FROM comment
-                                    JOIN feed_comment
-                                      ON feed_comment.comment_id = comment.id
-                              WHERE feed_id = ANY(:feed_id)
-                           ORDER BY id, word_counts DESC
-                     ) comment_table$$
-            )
-           WHERE LENGTH (word) > 1
-        ORDER BY nentry DESC
-           LIMIT :count;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        ).fetchall()
+    # Get highest frequency words used in comments, excluding stop words,
+    # filtering by feed_ids if specified
+    if feed_ids:
+        query = session.execute(
+            """
+              SELECT *
+                FROM ts_stat(
+                     $$SELECT word_counts
+                         FROM (
+                                 SELECT DISTINCT ON (id)
+                                        id, feed_id, word_counts
+                                   FROM comment
+                                        JOIN feed_comment
+                                          ON feed_comment.comment_id =
+                                             comment.id
+                                  WHERE feed_id = ANY(:feed_id)
+                               ORDER BY id, word_counts DESC
+                         ) comment_table$$
+                )
+               WHERE LENGTH (word) > 1
+            ORDER BY nentry DESC
+               LIMIT :count;
+            """,
+            {'feed_id': feed_ids,
+            'count': count}
+            ).fetchall()
+
+    else:
+        query = session.execute(
+            """
+              SELECT *
+                FROM ts_stat(
+                     $$SELECT word_counts
+                         FROM comment$$
+                )
+               WHERE LENGTH (word) > 1
+            ORDER BY nentry DESC
+               LIMIT :count;
+            """,
+            {'feed_id': feed_ids,
+            'count': count}
+            ).fetchall()
 
     session.close()
 
@@ -495,18 +543,28 @@ def get_deepest_comment_tree(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get highest level comment (deepest in comment tree)
-    subquery = session.query(models.Comment).with_entities(
-        models.Comment.content, models.Comment.created, models.Comment.id,
-        models.Comment.level, models.Comment.parent_comment,
-        models.Comment.post_id, models.Comment.username,
-        models.FeedComment.feed_rank).join(models.FeedComment).filter(
-        models.FeedComment.feed_id.in_(feed_ids)).order_by(
-        models.Comment.id, models.Comment.level.desc()).distinct(
-        models.Comment.id).subquery()
+    # Get highest level comment (deepest in comment tree), filtering by
+    # feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Comment).with_entities(
+            models.Comment.content, models.Comment.created, models.Comment.id,
+            models.Comment.level, models.Comment.parent_comment,
+            models.Comment.post_id,
+            models.Comment.username).join(models.FeedComment).filter(
+            models.FeedComment.feed_id.in_(feed_ids)).order_by(
+            models.Comment.id, models.Comment.level.desc()).distinct(
+            models.Comment.id).subquery()
 
-    comment = session.query(subquery).order_by(
-        subquery.columns.get('level').desc()).limit(1).one()._asdict()
+        comment = session.query(subquery).order_by(
+            subquery.columns.get('level').desc()).limit(1).one()._asdict()
+
+    else:
+        comment = session.query(models.Comment).with_entities(
+            models.Comment.content, models.Comment.created, models.Comment.id,
+            models.Comment.level, models.Comment.parent_comment,
+            models.Comment.post_id,
+            models.Comment.username).order_by(
+            models.Comment.level.desc()).limit(1).one()._asdict()
 
     comment['tree'] = []
 
@@ -538,19 +596,33 @@ def get_posts_with_highest_comment_counts(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get posts with highest comment counts
-    subquery = session.query(models.Post).with_entities(
-        models.Post.created, models.Post.id, models.Post.link,
-        models.Post.title, models.Post.type, models.Post.username,
-        models.Post.website, models.FeedPost.comment_count,
-        models.FeedPost.feed_rank, models.FeedPost.point_count).join(
-        models.FeedPost).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).order_by(
-        models.Post.id, models.FeedPost.comment_count.desc()).distinct(
-        models.Post.id).subquery()
+    # Get posts with highest comment counts, filtering by feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.created, models.Post.id, models.Post.link,
+            models.Post.title, models.Post.type, models.Post.username,
+            models.Post.website, models.FeedPost.comment_count,
+            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+            models.FeedPost).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).order_by(
+            models.Post.id, models.FeedPost.comment_count.desc()).distinct(
+            models.Post.id).subquery()
 
-    query = session.query(subquery).order_by(
-        subquery.columns.get('comment_count').desc()).limit(count)
+        query = session.query(subquery).order_by(
+            subquery.columns.get('comment_count').desc()).limit(count)
+
+    else:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.created, models.Post.id, models.Post.link,
+            models.Post.title, models.Post.type, models.Post.username,
+            models.Post.website, models.FeedPost.comment_count,
+            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+            models.FeedPost).order_by(
+            models.Post.id, models.FeedPost.comment_count.desc()).distinct(
+            models.Post.id).subquery()
+
+        query = session.query(subquery).order_by(
+            subquery.columns.get('comment_count').desc()).limit(count)
 
     session.close()
 
@@ -570,19 +642,33 @@ def get_posts_with_highest_point_counts(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get posts with highest point counts
-    subquery = session.query(models.Post).with_entities(
-        models.Post.created, models.Post.id, models.Post.link,
-        models.Post.title, models.Post.type, models.Post.username,
-        models.Post.website, models.FeedPost.comment_count,
-        models.FeedPost.feed_rank, models.FeedPost.point_count).join(
-        models.FeedPost).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).order_by(
-        models.Post.id, models.FeedPost.point_count.desc()).distinct(
-        models.Post.id).subquery()
+    # Get posts with highest point counts, filtering by feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.created, models.Post.id, models.Post.link,
+            models.Post.title, models.Post.type, models.Post.username,
+            models.Post.website, models.FeedPost.comment_count,
+            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+            models.FeedPost).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).order_by(
+            models.Post.id, models.FeedPost.point_count.desc()).distinct(
+            models.Post.id).subquery()
 
-    query = session.query(subquery).order_by(
-        subquery.columns.get('point_count').desc()).limit(count)
+        query = session.query(subquery).order_by(
+            subquery.columns.get('point_count').desc()).limit(count)
+
+    else:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.created, models.Post.id, models.Post.link,
+            models.Post.title, models.Post.type, models.Post.username,
+            models.Post.website, models.FeedPost.comment_count,
+            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+            models.FeedPost).order_by(
+            models.Post.id, models.FeedPost.point_count.desc()).distinct(
+            models.Post.id).subquery()
+
+        query = session.query(subquery).order_by(
+            subquery.columns.get('point_count').desc()).limit(count)
 
     session.close()
 
@@ -598,18 +684,29 @@ def get_post_types(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get count of types of posts ('article' vs. 'ask' vs. 'job' vs. 'show')
-    subquery = session.query(models.Post).with_entities(
-        models.Post.id, models.Post.type).join(
-        models.FeedPost).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).order_by(
-        models.Post.id, models.FeedPost.feed_id.desc()).distinct(
-        models.Post.id).subquery()
+    # Get count of types of posts ('article' vs. 'ask' vs. 'job' vs. 'show'),
+    # filtering by feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.id, models.Post.type).join(
+            models.FeedPost).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).order_by(
+            models.Post.id, models.FeedPost.feed_id.desc()).distinct(
+            models.Post.id).subquery()
 
-    query = session.query(subquery).with_entities(
-        subquery.columns.get('type'),
-        func.count('*').label("type_count")).group_by(
-        subquery.columns.get('type')).order_by(desc('type_count'))
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('type'),
+            func.count('*').label("type_count")).group_by(
+            subquery.columns.get('type')).order_by(desc('type_count'))
+
+    else:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.id, models.Post.type).subquery()
+
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('type'),
+            func.count('*').label("type_count")).group_by(
+            subquery.columns.get('type')).order_by(desc('type_count'))
 
     session.close()
 
@@ -629,30 +726,49 @@ def get_most_frequent_title_words(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get highest-frequency words used in post titles, excluding stop words
-    query = session.execute(
-        """
-          SELECT *
-            FROM ts_stat(
-                 $$SELECT to_tsvector('simple_english', LOWER(title))
-                     FROM (
-                             SELECT DISTINCT ON (post.id)
-                                    post.id, post.title, feed_post.feed_id
-                               FROM post
-                                    JOIN feed_post
-                                      ON feed_post.post_id = post.id
-                              WHERE feed_id = ANY(:feed_id)
-                           ORDER BY post.id, feed_post.feed_id DESC
-                     ) post_table$$
-            )
-           WHERE word NOT IN ('ask', 'hn', 'show')
-             AND LENGTH (word) > 1
-        ORDER BY nentry DESC
-           LIMIT :count;
-        """,
-        {'feed_id': feed_ids,
-        'count': count}
-        ).fetchall()
+    # Get highest-frequency words used in post titles, excluding stop words,
+    # filtering by feed_ids if specified
+    if feed_ids:
+        query = session.execute(
+            """
+              SELECT *
+                FROM ts_stat(
+                     $$SELECT to_tsvector('simple_english', LOWER(title))
+                         FROM (
+                                 SELECT DISTINCT ON (post.id)
+                                        post.id, post.title, feed_post.feed_id
+                                   FROM post
+                                        JOIN feed_post
+                                          ON feed_post.post_id = post.id
+                                  WHERE feed_id = ANY(:feed_id)
+                               ORDER BY post.id, feed_post.feed_id DESC
+                         ) post_table$$
+                )
+               WHERE word NOT IN ('ask', 'hn', 'show')
+                 AND LENGTH (word) > 1
+            ORDER BY nentry DESC
+               LIMIT :count;
+            """,
+            {'feed_id': feed_ids,
+            'count': count}
+            ).fetchall()
+
+    else:
+        query = session.execute(
+            """
+              SELECT *
+                FROM ts_stat(
+                     $$SELECT to_tsvector('simple_english', LOWER(title))
+                         FROM post$$
+                )
+               WHERE word NOT IN ('ask', 'hn', 'show')
+                 AND LENGTH (word) > 1
+            ORDER BY nentry DESC
+               LIMIT :count;
+            """,
+            {'feed_id': feed_ids,
+            'count': count}
+            ).fetchall()
 
     session.close()
 
@@ -672,20 +788,37 @@ def get_top_posts(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get posts in order of rank
-    subquery = session.query(models.Post).with_entities(
-        models.Post.created, models.Post.id, models.Post.link,
-        models.Post.title, models.Post.type, models.Post.username,
-        models.Post.website, models.FeedPost.comment_count,
-        models.FeedPost.feed_rank, models.FeedPost.point_count).join(
-        models.FeedPost).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).order_by(
-        models.Post.id, models.FeedPost.feed_rank,
-        models.FeedPost.point_count.desc()).distinct(models.Post.id).subquery()
+    # Get posts in order of rank, filtering by feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.created, models.Post.id, models.Post.link,
+            models.Post.title, models.Post.type, models.Post.username,
+            models.Post.website, models.FeedPost.comment_count,
+            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+            models.FeedPost).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).order_by(
+            models.Post.id, models.FeedPost.feed_rank,
+            models.FeedPost.point_count.desc()).distinct(
+            models.Post.id).subquery()
 
-    query = session.query(subquery).order_by(
-        subquery.columns.get('feed_rank'),
-        subquery.columns.get('point_count').desc()).limit(count)
+        query = session.query(subquery).order_by(
+            subquery.columns.get('feed_rank'),
+            subquery.columns.get('point_count').desc()).limit(count)
+
+    else:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.created, models.Post.id, models.Post.link,
+            models.Post.title, models.Post.type, models.Post.username,
+            models.Post.website, models.FeedPost.comment_count,
+            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
+            models.FeedPost).order_by(
+            models.Post.id, models.FeedPost.feed_rank,
+            models.FeedPost.point_count.desc()).distinct(
+            models.Post.id).subquery()
+
+        query = session.query(subquery).order_by(
+            subquery.columns.get('feed_rank'),
+            subquery.columns.get('point_count').desc()).limit(count)
 
     session.close()
 
@@ -705,20 +838,33 @@ def get_top_websites(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get websites that highest number of posts are from
-    subquery = session.query(models.Post).with_entities(
-        models.Post.id, models.Post.website).join(
-        models.FeedPost).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).filter(
-        models.Post.website != '').order_by(
-        models.Post.id, models.FeedPost.feed_id.desc()).distinct(
-        models.Post.id).subquery()
+    # Get websites that highest number of posts are from, filtering by feed_ids
+    # if specified
+    if feed_ids:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.id, models.Post.website).join(
+            models.FeedPost).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).filter(
+            models.Post.website != '').order_by(
+            models.Post.id, models.FeedPost.feed_id.desc()).distinct(
+            models.Post.id).subquery()
 
-    query = session.query(subquery).with_entities(
-        subquery.columns.get('website'),
-        func.count('*').label("link_count")).group_by(
-        subquery.columns.get('website')).order_by(desc('link_count')).limit(
-        count)
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('website'),
+            func.count('*').label("link_count")).group_by(
+            subquery.columns.get('website')).order_by(
+            desc('link_count')).limit(count)
+
+    else:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.id, models.Post.website).filter(
+            models.Post.website != '').subquery()
+
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('website'),
+            func.count('*').label("link_count")).group_by(
+            subquery.columns.get('website')).order_by(
+            desc('link_count')).limit(count)
 
     session.close()
 
@@ -738,18 +884,32 @@ def get_users_with_most_comments(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get users who posted the most comments
-    subquery = session.query(models.UserContentCounts).with_entities(
-        models.UserContentCounts.comment_count,
-        models.UserContentCounts.username,
-        models.UserContentCounts.word_count).filter(
-        models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
-        models.UserContentCounts.username,
-        models.UserContentCounts.comment_count.desc()).distinct(
-        models.UserContentCounts.username).subquery()
+    # Get users who posted the most comments, filtering by feed_ids if
+    # specified
+    if feed_ids:
+        subquery = session.query(models.UserContentCounts).with_entities(
+            models.UserContentCounts.comment_count,
+            models.UserContentCounts.username,
+            models.UserContentCounts.word_count).filter(
+            models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
+            models.UserContentCounts.username,
+            models.UserContentCounts.comment_count.desc()).distinct(
+            models.UserContentCounts.username).subquery()
 
-    query = session.query(subquery).order_by(
-        subquery.columns.get('comment_count').desc()).limit(count)
+        query = session.query(subquery).order_by(
+            subquery.columns.get('comment_count').desc()).limit(count)
+
+    else:
+        subquery = session.query(models.UserContentCounts).with_entities(
+            models.UserContentCounts.comment_count,
+            models.UserContentCounts.username,
+            models.UserContentCounts.word_count).order_by(
+            models.UserContentCounts.username,
+            models.UserContentCounts.comment_count.desc()).distinct(
+            models.UserContentCounts.username).subquery()
+
+        query = session.query(subquery).order_by(
+            subquery.columns.get('comment_count').desc()).limit(count)
 
     session.close()
 
@@ -769,19 +929,30 @@ def get_users_with_most_posts(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get users who posted the most posts
-    subquery = session.query(models.Post).with_entities(
-        models.Post.id, models.Post.username).join(models.FeedPost).filter(
-        models.FeedPost.feed_id.in_(feed_ids)).filter(
-        models.Post.username != '').order_by(
-        models.Post.id, models.FeedPost.feed_id.desc()).distinct(
-        models.Post.id).subquery()
+    # Get users who posted the most posts, filtering by feed_ids if specified
+    if feed_ids:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.id, models.Post.username).join(models.FeedPost).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).filter(
+            models.Post.username != '').order_by(models.Post.id,
+            models.FeedPost.feed_id.desc()).distinct(models.Post.id).subquery()
 
-    query = session.query(subquery).with_entities(
-        subquery.columns.get('username'),
-        func.count('*').label("post_count")).group_by(
-        subquery.columns.get('username')).order_by(desc('post_count')).limit(
-        count)
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('username'),
+            func.count('*').label("post_count")).group_by(
+            subquery.columns.get('username')).order_by(
+            desc('post_count')).limit(count)
+
+    else:
+        subquery = session.query(models.Post).with_entities(
+            models.Post.id, models.Post.username).filter(
+            models.Post.username != '').subquery()
+
+        query = session.query(subquery).with_entities(
+            subquery.columns.get('username'),
+            func.count('*').label("post_count")).group_by(
+            subquery.columns.get('username')).order_by(
+            desc('post_count')).limit(count)
 
     session.close()
 
@@ -801,18 +972,32 @@ def get_users_with_most_words_in_comments(feed_ids):
     # Connect to database
     session = models.Session()
 
-    # Get users who posted the most words in comments
-    subquery = session.query(models.UserContentCounts).with_entities(
-        models.UserContentCounts.comment_count,
-        models.UserContentCounts.username,
-        models.UserContentCounts.word_count).filter(
-        models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
-        models.UserContentCounts.username,
-        models.UserContentCounts.word_count.desc()).distinct(
-        models.UserContentCounts.username).subquery()
+    # Get users who posted the most words in comments, filtering by feed_ids if
+    # specified
+    if feed_ids:
+        subquery = session.query(models.UserContentCounts).with_entities(
+            models.UserContentCounts.comment_count,
+            models.UserContentCounts.username,
+            models.UserContentCounts.word_count).filter(
+            models.UserContentCounts.feed_id.in_(feed_ids)).order_by(
+            models.UserContentCounts.username,
+            models.UserContentCounts.word_count.desc()).distinct(
+            models.UserContentCounts.username).subquery()
 
-    query = session.query(subquery).order_by(
-        subquery.columns.get('word_count').desc()).limit(count)
+        query = session.query(subquery).order_by(
+            subquery.columns.get('word_count').desc()).limit(count)
+
+    else:
+        subquery = session.query(models.UserContentCounts).with_entities(
+            models.UserContentCounts.comment_count,
+            models.UserContentCounts.username,
+            models.UserContentCounts.word_count).order_by(
+            models.UserContentCounts.username,
+            models.UserContentCounts.word_count.desc()).distinct(
+            models.UserContentCounts.username).subquery()
+
+        query = session.query(subquery).order_by(
+            subquery.columns.get('word_count').desc()).limit(count)
 
     session.close()
 
