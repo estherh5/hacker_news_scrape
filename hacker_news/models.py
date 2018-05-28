@@ -96,13 +96,3 @@ class FeedComment(Base):
 
 Comment.feeds = relationship(
     "FeedComment", order_by=FeedComment.feed_id, back_populates='comment')
-
-
-class UserContentCounts(Base):
-    __tablename__ = 'user_content_counts'
-    feed_id = Column(Integer, ForeignKey('feed.id'), primary_key=True)
-    username = Column(TEXT, primary_key=True)
-    comment_count = Column(Integer)
-    word_count = Column(Integer)
-    __table_args__ = (Index('user_content_index', 'comment_count',
-        'feed_id', 'username', 'word_count'), )
