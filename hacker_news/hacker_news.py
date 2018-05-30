@@ -341,9 +341,14 @@ def get_feeds(time_period):
         feed_ids = [row.id for row in session.query(models.Feed).filter(
             models.Feed.created > date.today()).all()]
 
+    # Get one feed per day in past week if 'week' is specified
     elif time_period == 'week':
-        feed_ids = [row.id for row in session.query(models.Feed).filter(
-            models.Feed.created > date.today() - timedelta(days=6)).all()]
+        feed_ids = []
+
+        for i in range(7):
+            feed_ids.append(session.query(models.Feed.id).filter(
+                models.Feed.created > date.today() - timedelta(days=i)).limit(
+                1).one()[0])
 
     # Return no feed_ids if 'all' is specified so all data can be queried
     elif time_period == 'all':
