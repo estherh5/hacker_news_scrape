@@ -149,24 +149,81 @@ To retrieve statistics for the data scraped from Hacker News, a client can send 
 * Example response body:
 ```javascript
 {
-    "content": "Our Nexus setup is internal only. For WFH, we have hundreds of folks using a corporate VPN which routes to our office, and then our office routes to our AWS VPC, which is where our Nexus installation lives. I set this configuration up and haven't had any real issues with it, nor do I see any reason to switch between a proxy and npm.If a developer is using an older buggy version of npm that doesn't respect .npmrc and changes a lock file to point back to npmjs.org entries, we deny the PR and ask for it to be fixed. Right now that check is unfortunately manual, but there are plans to automate it. It can be easy to miss at times though, since GitHub often collapses lock files on PR's due to their size.For us, the main purpose of using Nexus as a proxy is to maintain availability and to cache/maintain package versions. If you're using Nexus to make things faster, then you probably shouldn't be using it. If you want faster installs, look into using `npm ci`.",
-    "created": "Tue, 29 May 2018 20:15:00 GMT",
-    "id": 17182568,
-    "level": 10,
-    "post_id": 17175960,
-    "tree": [
-        17182547,
-        17181454,
-        17181212,
-        17180672,
-        17178596,
-        17177924,
-        17177264,
-        17176882,
-        17176858,
-        17176256
-    ],
-    "username": "acejam"
+    "comment_count": 202,
+    "comment_tree": {
+        "child_comment": {
+            "child_comment": {
+                "child_comment": {
+                    "child_comment": {
+                        "child_comment": {
+                            "child_comment": {
+                                "child_comment": {
+                                    "child_comment": {
+                                        "child_comment": {
+                                            "child_comment": {
+                                                "content": "Our Nexus setup is internal only. For WFH, we have hundreds of folks using a corporate VPN which routes to our office, and then our office routes to our AWS VPC, which is where our Nexus installation lives. I set this configuration up and haven't had any real issues with it, nor do I see any reason to switch between a proxy and npm.If a developer is using an older buggy version of npm that doesn't respect .npmrc and changes a lock file to point back to npmjs.org entries, we deny the PR and ask for it to be fixed. Right now that check is unfortunately manual, but there are plans to automate it. It can be easy to miss at times though, since GitHub often collapses lock files on PR's due to their size.For us, the main purpose of using Nexus as a proxy is to maintain availability and to cache/maintain package versions. If you're using Nexus to make things faster, then you probably shouldn't be using it. If you want faster installs, look into using `npm ci`.",
+                                                "created": "Tue, 29 May 2018 20:15:00 GMT",
+                                                "id": 17182568,
+                                                "username": "acejam"
+                                            },
+                                            "content": "Gradle build scripts can also be written in Kotlin.",
+                                            "created": "Tue, 29 May 2018 20:13:00 GMT",
+                                            "id": 17182547,
+                                            "username": "vorg"
+                                        },
+                                        "content": "Yeah sorry if I wasn't clear, in Gradle the build script is written in Groovy.  It is used to build any number of project types.",
+                                        "created": "Tue, 29 May 2018 17:57:00 GMT",
+                                        "id": 17181454,
+                                        "username": "peeters"
+                                    },
+                                    "content": "Just a note: you can use Gradle for Java too. I haven't built a Java project without Gradle since like 2010 or so.",
+                                    "created": "Tue, 29 May 2018 17:31:00 GMT",
+                                    "id": 17181212,
+                                    "username": "_asummers"
+                                },
+                                "content": "I spent yesterday trying to get protobuffers working in maven, see http://vlkan.com/blog/post/2015/11/27/maven-protobuf/ for the pain.Anything counter to maven's way is a PITA. In this case, Maven dislikes platform specific binaries.",
+                                "created": "Tue, 29 May 2018 16:35:00 GMT",
+                                "id": 17180672,
+                                "username": "tlarkworthy"
+                            },
+                            "content": "Wouldn't that be more of an issue of not having an SLA between SaaS and client?If the silly non-automated dashboard is part of the SLA, then it costs someone money/liability/trust to not maintain it, otherwise \"who cares as long the issue gets resolved, people who care about the issue are tracking the bug report?\"",
+                            "created": "Tue, 29 May 2018 12:47:00 GMT",
+                            "id": 17178596,
+                            "username": "nonconvergent"
+                        },
+                        "content": "I don't consider a non working status page trivial. Yes, if a SaaSs send me into a rage then there probably dozens of red flags already, yes I will work with clients to drop or replace such SaaS with one that can communicate, absolutely as it usually falls under my devop remit. This doesn't apply to npm as not a paid Iaas/SaaS, but more to point out the number of shit SaaS that don't manage their status updates probably. Imgix in the past for example, Linode when Ddos - absolutely shambolic communication, and so on",
+                        "created": "Tue, 29 May 2018 10:41:00 GMT",
+                        "id": 17177924,
+                        "username": "sitepodmatt"
+                    },
+                    "content": "You force your clients to do things for trivial reasons that send you info a rage?",
+                    "created": "Tue, 29 May 2018 08:10:00 GMT",
+                    "id": 17177264,
+                    "username": "mattmanser"
+                },
+                "content": "This is why I make clients drop/replace SaaSs. When SaaS don't update status page, or in a transparent and prompt way, because it's not 100% outage it rages me, especially if the reports are found elsewhere - twitter/reddit/hn.",
+                "created": "Tue, 29 May 2018 06:20:00 GMT",
+                "id": 17176882,
+                "username": "sitepodmatt"
+            },
+            "content": "The entire traffic light metaphor of status pages and dashboards is questionable IMHO.",
+            "created": "Tue, 29 May 2018 06:13:00 GMT",
+            "id": 17176858,
+            "username": "tannhaeuser"
+        },
+        "content": "2 hours after the incident was responded to by an npm employee and the status is still green: https://status.npmjs.org/I love fake status pages!",
+        "created": "Tue, 29 May 2018 04:30:00 GMT",
+        "id": 17176256,
+        "username": "iends"
+    },
+    "created": "Tue, 29 May 2018 03:37:00 GMT",
+    "feed_rank": 90,
+    "id": 17175960,
+    "link": "https://github.com/npm/npm/issues/20791",
+    "point_count": 292,
+    "title": "NPM proxy users receiving ERR 418 I'm a teapot",
+    "type": "article",
+    "username": "spondyl"
 }
 ```
 
