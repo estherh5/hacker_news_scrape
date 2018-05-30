@@ -544,8 +544,8 @@ def get_deepest_comment_tree(feed_ids):
         subquery = session.query(models.Comment).with_entities(
             models.Comment.content, models.Comment.created, models.Comment.id,
             models.Comment.level, models.Comment.parent_comment,
-            models.Comment.post_id,
-            models.Comment.username).join(models.FeedComment).filter(
+            models.Comment.post_id, models.Comment.username).join(
+            models.FeedComment).filter(
             models.FeedComment.feed_id.in_(feed_ids)).order_by(
             models.Comment.id, models.Comment.level.desc()).distinct(
             models.Comment.id).subquery()
@@ -553,34 +553,58 @@ def get_deepest_comment_tree(feed_ids):
         comment = session.query(subquery).order_by(
             subquery.columns.get('level').desc()).limit(1).one()._asdict()
 
+        # Get post information
+        post = session.query(models.Post).with_entities(models.Post.created,
+            models.Post.id, models.Post.link, models.Post.title,
+            models.Post.type, models.Post.username,
+            models.FeedPost.comment_count, models.FeedPost.feed_rank,
+            models.FeedPost.point_count).join(models.FeedPost).filter(
+            models.Post.id == comment['post_id']).filter(
+            models.FeedPost.feed_id.in_(feed_ids)).order_by(
+            models.FeedPost.post_id.desc()).limit(1).one()._asdict()
+
     else:
         comment = session.query(models.Comment).with_entities(
             models.Comment.content, models.Comment.created, models.Comment.id,
             models.Comment.level, models.Comment.parent_comment,
-            models.Comment.post_id,
-            models.Comment.username).order_by(
+            models.Comment.post_id, models.Comment.username).order_by(
             models.Comment.level.desc()).limit(1).one()._asdict()
 
-    comment['tree'] = []
+        # Get post information
+        post = session.query(models.Post).with_entities(models.Post.created,
+            models.Post.id, models.Post.link, models.Post.title,
+            models.Post.type, models.Post.username,
+            models.FeedPost.comment_count, models.FeedPost.feed_rank,
+            models.FeedPost.point_count).join(models.FeedPost).filter(
+            models.Post.id == comment['post_id']).order_by(
+            models.FeedPost.feed_id.desc()).limit(1).one()._asdict()
 
-    # Get parent comments of parent comment to get full comment tree
+    comment.pop('post_id')
+    comment.pop('level')
+
+    # Get parent comments of comment to get full comment tree
     while comment['parent_comment']:
-        comment['tree'].append(comment['parent_comment'])
+        parent_comment = session.query(models.Comment).with_entities(
+            models.Comment.content, models.Comment.created,
+            models.Comment.id, models.Comment.parent_comment,
+            models.Comment.username).filter(
+            models.Comment.id == comment['parent_comment']).one()._asdict()
 
-        try:
-            comment['parent_comment'] = session.query(
-                models.Comment).with_entities(
-                models.Comment.parent_comment).filter(
-                models.Comment.id == comment['parent_comment']).one()[0]
+        comment.pop('parent_comment')
 
-        except NoResultFound:
-            comment['parent_comment'] = ''
+        # Set comment as child of parent
+        parent_comment['child_comment'] = comment
 
-    session.close()
+        # Set next comment as current parent comment
+        comment = parent_comment
 
     comment.pop('parent_comment')
 
-    return jsonify(comment)
+    post['comment_tree'] = comment
+
+    session.close()
+
+    return jsonify(post)
 
 
 def get_posts_with_highest_comment_counts(feed_ids):
