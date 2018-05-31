@@ -3,7 +3,7 @@ import os
 import requests
 import time
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, UnicodeDammit
 from datetime import date, datetime, timedelta
 from flask import jsonify, make_response, request
 from sqlalchemy import desc, inspect
@@ -130,6 +130,15 @@ async def scrape_page(page, feed_id, loop):
 
             session.add(post)
 
+        # Get post's comment count if it is listed (otherwise, set to 0)
+        if 'comment' in subtext_row.find_all(
+            href='item?id=' + post_id)[-1].get_text():
+                unicode_count = UnicodeDammit(subtext_row.find_all(
+                    href='item?id=' + post_id)[-1].get_text())
+                comment_count = unicode_count.unicode_markup.split()[0]
+        else:
+            comment_count = 0
+
         # Get post's rank on feed page
         feed_rank = post_row.find('span', 'rank').get_text()[:-1]
 
@@ -142,44 +151,51 @@ async def scrape_page(page, feed_id, loop):
             type = 'job'
 
         # Add feed-based post data to database
-        feed_post = models.FeedPost(feed_id=feed_id, feed_rank=feed_rank,
-            point_count=point_count, post_id=post_id)
+        feed_post = models.FeedPost(comment_count=comment_count,
+            feed_id=feed_id, feed_rank=feed_rank, point_count=point_count,
+            post_id=post_id)
 
         session.add(feed_post)
 
         session.commit()
 
         # Create asynchronous task to scrape post page for its comments
-        loop.create_task(scrape_post(post_id, feed_id))
+        loop.create_task(scrape_post(post_id, feed_id, loop, None))
 
     return
 
 
-async def scrape_post(post_id, feed_id):
+async def scrape_post(post_id, feed_id, loop, page_number):
     # Connect to database
     session = models.Session()
 
     # Get current UTC time in seconds
     now = int(datetime.utcnow().strftime('%s'))
 
-    # Get HTML tree from post's webpage
-    post_html = requests.get(
-        'https://news.ycombinator.com/item?id=' + str(post_id))
+    # Get HTML tree from post's webpage, specifying page number if given
+    if page_number:
+        post_html = requests.get(
+            'https://news.ycombinator.com/item?id=' + str(post_id) + '&p=' +
+            str(page_number))
+
+    else:
+        post_html = requests.get(
+            'https://news.ycombinator.com/item?id=' + str(post_id))
 
     post_content = post_html.content
 
     post_soup = BeautifulSoup(post_content, 'html.parser')
 
+    # If post page contains a "More" link to more comments, create asynchronous
+    # task to scrape that page for its comments
+    if (post_soup.find('a', 'morelink')):
+        page_number = post_soup.find('a', 'morelink').get(
+            'href').split('&p=')[1]
+
+        loop.create_task(scrape_post(post_id, feed_id, loop, page_number))
+
     # Get all comment rows from HTML tree
     comment_rows = post_soup.select('tr.athing.comtr')
-
-    # Get post from database
-    post = session.query(models.FeedPost).filter(
-        models.FeedPost.post_id == post_id).filter(
-        models.FeedPost.feed_id == feed_id).limit(1).one()
-
-    # Add post's comment count to database
-    post.comment_count = len(comment_rows)
 
     # Set starting comment feed rank to 0
     comment_feed_rank = 0
@@ -277,7 +293,9 @@ async def scrape_post(post_id, feed_id):
 
     session.commit()
 
-    print('Post ' + str(post_id) + ' and its comments scraped')
+    # Print message if there are no more pages of comments to scrape
+    if not post_soup.find('a', 'morelink'):
+        print('Post ' + str(post_id) + ' and its comments scraped')
 
     return
 
