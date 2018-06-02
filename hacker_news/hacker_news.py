@@ -86,7 +86,7 @@ async def scrape_page(page, feed_id, loop):
             # UTC timestamp
             time_unit = subtext_row.find('span', 'age').a.get_text().split()[1]
 
-            if time_unit == 'hours':
+            if 'hour' in time_unit:
                 created = now - 3600 * int(subtext_row.find(
                     'span', 'age').a.get_text().split()[0])
 
@@ -235,7 +235,7 @@ async def scrape_post(post_id, feed_id, loop, page_number):
             comment_time_unit = comment_row.find(
                 'span', 'age').a.get_text().split()[1]
 
-            if comment_time_unit == 'hours':
+            if 'hour' in comment_time_unit:
                 comment_created = now - 3600 * int(comment_row.find(
                     'span', 'age').a.get_text().split()[0])
 
