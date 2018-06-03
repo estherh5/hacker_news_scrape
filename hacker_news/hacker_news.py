@@ -82,11 +82,15 @@ async def scrape_page(page, feed_id, loop):
         # Get core post data if it is not in database already
         if not post_exists:
             # Get UTC timestamp for post's posting time by subtracting the
-            # number of hours/minutes ago given on the webpage from the current
-            # UTC timestamp
+            # number of days/hours/minutes ago given on the webpage from the
+            # current UTC timestamp
             time_unit = subtext_row.find('span', 'age').a.get_text().split()[1]
 
-            if 'hour' in time_unit:
+            if 'day' in time_unit:
+                created = now - 86400 * int(subtext_row.find(
+                    'span', 'age').a.get_text().split()[0])
+
+            elif 'hour' in time_unit:
                 created = now - 3600 * int(subtext_row.find(
                     'span', 'age').a.get_text().split()[0])
 
@@ -230,12 +234,16 @@ async def scrape_post(post_id, feed_id, loop, page_number):
                 total_word_count = 0
 
             # Get UTC timestamp for comment's posting time by subtracting
-            # the number of hours/minutes ago given on the webpage from the
-            # current UTC timestamp
+            # the number of days/hours/minutes ago given on the webpage from
+            # the current UTC timestamp
             comment_time_unit = comment_row.find(
                 'span', 'age').a.get_text().split()[1]
 
-            if 'hour' in comment_time_unit:
+            if 'day' in comment_time_unit:
+                comment_created = now - 86400 * int(comment_row.find(
+                    'span', 'age').a.get_text().split()[0])
+
+            elif 'hour' in comment_time_unit:
                 comment_created = now - 3600 * int(comment_row.find(
                     'span', 'age').a.get_text().split()[0])
 
