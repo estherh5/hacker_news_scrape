@@ -1,0 +1,10 @@
+[run]
+omit =
+    # omit files in python3.6 folder
+    ~/.virtualenvs/hn/lib/python3.6/*
+
+    # omit management.py file with bash commands
+    management.py
+
+    # omit alembic files
+    alembic/*
