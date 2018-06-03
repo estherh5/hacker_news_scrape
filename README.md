@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/estherh5/hacker_news_scrape.svg?branch=master)](https://travis-ci.org/estherh5/hacker_news_scrape)
 [![codecov](https://codecov.io/gh/estherh5/hacker_news_scrape/branch/master/graph/badge.svg)](https://codecov.io/gh/estherh5/hacker_news_scrape)
 
 # Hacker News Scrape
