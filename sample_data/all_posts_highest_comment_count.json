@@ -1,0 +1,62 @@
+[
+  {
+    "comment_count": 1388,
+    "created": "Sun, 03 Jun 2018 20:15:00 GMT",
+    "feed_rank": 64,
+    "id": 17221527,
+    "link": "http://www.bloomberg.com/news/articles/2018-06-03/microsoft-is-said-to-have-agreed-to-acquire-coding-site-github?",
+    "point_count": 2842,
+    "title": "Microsoft Is Said to Have Agreed to Acquire GitHub",
+    "type": "article",
+    "username": "miguelrochefort",
+    "website": "bloomberg.com"
+  },
+  {
+    "comment_count": 1146,
+    "created": "Thu, 12 Jul 2018 12:41:00 GMT",
+    "feed_rank": 82,
+    "id": 17513828,
+    "link": "https://www.apple.com/newsroom/2018/07/apple-updates-macbook-pro-with-faster-performance-and-new-features-for-pros/",
+    "point_count": 870,
+    "title": "MacBook Pro with faster performance and new features for pros",
+    "type": "article",
+    "username": "briandear",
+    "website": "apple.com"
+  },
+  {
+    "comment_count": 1095,
+    "created": "Sun, 29 Apr 2018 22:41:00 GMT",
+    "feed_rank": 64,
+    "id": 16954306,
+    "link": "https://streetlend.com",
+    "point_count": 704,
+    "title": "Another Victim of the EU GDPR Regulations: StreetLend.com",
+    "type": "article",
+    "username": "cbeach",
+    "website": "streetlend.com"
+  },
+  {
+    "comment_count": 989,
+    "created": "Tue, 01 May 2018 15:03:00 GMT",
+    "feed_rank": 42,
+    "id": 16967543,
+    "link": "item?id=16967543",
+    "point_count": 552,
+    "title": "Ask HN: Who is hiring? (May 2018)",
+    "type": "ask",
+    "username": "whoishiring",
+    "website": ""
+  },
+  {
+    "comment_count": 982,
+    "created": "Wed, 12 Sep 2018 11:31:00 GMT",
+    "feed_rank": 84,
+    "id": 17967366,
+    "link": "https://www.theverge.com/2018/9/12/17849868/eu-internet-copyright-reform-article-11-13-approved",
+    "point_count": 1719,
+    "title": "EU approves internet copyright law, including ‘link tax’ and ‘upload filter’",
+    "type": "article",
+    "username": "daninet",
+    "website": "theverge.com"
+  }
+]

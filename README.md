@@ -12,7 +12,7 @@ Hacker News Scrape is a data scraper tool that uses [Requests](http://docs.pytho
     * `FLASK_APP` for the Flask application name for your server ("server.py")
     * `ENV_TYPE` for the environment status (set this to "Dev" for testing or "Prod" for live)
     * `VIRTUAL_ENV_NAME` for the name of your virtual environment (e.g., 'hn'); this is used to schedule automatic data scrapes of the Hacker News main feed with crontab
-    * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., '<dialect+driver://username:password@host:port/database>')
+    * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., '<dialect+driver://username:password@host:port/database>'); note that if this variable is set to '', sample data will be returned for the endpoints called from the front-end web app only
     * `DB_NAME` for the name of your database
 5. Load the initial database structure by running `alembic upgrade head`.
     * Note that you might need to add `PYTHONPATH=.` to the beginning of your revision command if Alembic can't find your module.

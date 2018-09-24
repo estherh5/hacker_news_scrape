@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import requests
 import time
@@ -359,6 +360,10 @@ def get_post(post_id):
 
 
 def get_feeds(time_period):
+    # Return time period if there is no database connection
+    if not os.environ['DB_CONNECTION']:
+        return time_period
+
     # Connect to database
     session = models.Session()
 
@@ -505,6 +510,13 @@ def get_comments_with_highest_word_counts(feed_ids):
 
 
 def get_most_frequent_comment_words(feed_ids):
+    # Return sample data if there is no database connection
+    if not os.environ['DB_CONNECTION']:
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/' + feed_ids + '_comment_words.json',
+            'r') as sample_data:
+                return jsonify(json.load(sample_data))
+
     # Get number of requested words from query parameter, using default if
     # null
     count = int(request.args.get('count', 1))
@@ -639,6 +651,13 @@ def get_deepest_comment_tree(feed_ids):
 
 
 def get_posts_with_highest_comment_counts(feed_ids):
+    # Return sample data if there is no database connection
+    if not os.environ['DB_CONNECTION']:
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/' + feed_ids + '_posts_highest_comment_count.json',
+            'r') as sample_data:
+                return jsonify(json.load(sample_data))
+
     # Get number of requested posts from query parameter, using default if
     # null
     count = int(request.args.get('count', 1))
@@ -731,7 +750,14 @@ def get_posts_with_highest_point_counts(feed_ids):
 
 
 def get_post_types(feed_ids):
-    # Connect to database
+    # Return sample data if there is no database connection
+    if not os.environ['DB_CONNECTION']:
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/' + feed_ids + '_post_types.json',
+            'r') as sample_data:
+                return jsonify(json.load(sample_data))
+
+    # Otherwise, connect to database
     session = models.Session()
 
     # Get count of types of posts ('article' vs. 'ask' vs. 'job' vs. 'show'),
@@ -927,6 +953,13 @@ def get_top_websites(feed_ids):
 
 
 def get_users_with_most_comments(feed_ids):
+    # Return sample data if there is no database connection
+    if not os.environ['DB_CONNECTION']:
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/' + feed_ids + '_users_most_comments.json',
+            'r') as sample_data:
+                return jsonify(json.load(sample_data))
+
     # Get number of requested users from query parameter, using default if
     # null
     count = int(request.args.get('count', 1))

@@ -1,0 +1,62 @@
+[
+  {
+    "comment_count": 385,
+    "created": "Sun, 23 Sep 2018 20:30:00 GMT",
+    "feed_rank": 2,
+    "id": 18052923,
+    "link": "https://blog.cryptographyengineering.com/2018/09/23/why-im-leaving-chrome/",
+    "point_count": 1071,
+    "title": "Why I’m leaving Chrome",
+    "type": "article",
+    "username": "user982",
+    "website": "cryptographyengineering.com"
+  },
+  {
+    "comment_count": 295,
+    "created": "Fri, 21 Sep 2018 13:30:00 GMT",
+    "feed_rank": 87,
+    "id": 18039489,
+    "link": "http://dbmsmusings.blogspot.com/2018/09/newsql-database-systems-are-failing-to.html",
+    "point_count": 495,
+    "title": "NewSQL databases fail to guarantee consistency and I blame Spanner",
+    "type": "article",
+    "username": "evanweaver",
+    "website": "dbmsmusings.blogspot.com"
+  },
+  {
+    "comment_count": 268,
+    "created": "Sun, 23 Sep 2018 08:37:00 GMT",
+    "feed_rank": 43,
+    "id": 18050090,
+    "link": "https://www.nytimes.com/2018/09/20/opinion/sunday/sleep-school-start-time-screens-teenagers.html",
+    "point_count": 395,
+    "title": "Let Teenagers Sleep In",
+    "type": "article",
+    "username": "anoplus",
+    "website": "nytimes.com"
+  },
+  {
+    "comment_count": 195,
+    "created": "Sat, 22 Sep 2018 10:30:00 GMT",
+    "feed_rank": 78,
+    "id": 18045294,
+    "link": "https://www.statista.com/chart/15528/eu-scientists-by-location/",
+    "point_count": 149,
+    "title": "Brain Drain Within the EU?",
+    "type": "article",
+    "username": "siberianbear",
+    "website": "statista.com"
+  },
+  {
+    "comment_count": 186,
+    "created": "Sat, 22 Sep 2018 14:30:00 GMT",
+    "feed_rank": 83,
+    "id": 18046049,
+    "link": "https://arstechnica.com/science/2018/09/inside-the-eight-desperate-weeks-that-saved-spacex-from-ruin/",
+    "point_count": 281,
+    "title": "Inside the eight desperate weeks that saved SpaceX from ruin",
+    "type": "article",
+    "username": "Tomte",
+    "website": "arstechnica.com"
+  }
+]
