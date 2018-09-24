@@ -1,0 +1,62 @@
+[
+  {
+    "comment_count": 385,
+    "created": "Sun, 23 Sep 2018 20:30:00 GMT",
+    "feed_rank": 2,
+    "id": 18052923,
+    "link": "https://blog.cryptographyengineering.com/2018/09/23/why-im-leaving-chrome/",
+    "point_count": 1071,
+    "title": "Why I’m leaving Chrome",
+    "type": "article",
+    "username": "user982",
+    "website": "cryptographyengineering.com"
+  },
+  {
+    "comment_count": 295,
+    "created": "Fri, 21 Sep 2018 13:30:00 GMT",
+    "feed_rank": 87,
+    "id": 18039489,
+    "link": "http://dbmsmusings.blogspot.com/2018/09/newsql-database-systems-are-failing-to.html",
+    "point_count": 495,
+    "title": "NewSQL databases fail to guarantee consistency and I blame Spanner",
+    "type": "article",
+    "username": "evanweaver",
+    "website": "dbmsmusings.blogspot.com"
+  },
+  {
+    "comment_count": 268,
+    "created": "Sun, 23 Sep 2018 08:37:00 GMT",
+    "feed_rank": 43,
+    "id": 18050090,
+    "link": "https://www.nytimes.com/2018/09/20/opinion/sunday/sleep-school-start-time-screens-teenagers.html",
+    "point_count": 395,
+    "title": "Let Teenagers Sleep In",
+    "type": "article",
+    "username": "anoplus",
+    "website": "nytimes.com"
+  },
+  {
+    "comment_count": 217,
+    "created": "Sat, 22 Sep 2018 09:35:00 GMT",
+    "feed_rank": 88,
+    "id": 18045259,
+    "link": "https://totallywearingpants.com/posts/nim-underdog/",
+    "point_count": 342,
+    "title": "A Programming Language Underdog",
+    "type": "article",
+    "username": "dom96",
+    "website": "totallywearingpants.com"
+  },
+  {
+    "comment_count": 196,
+    "created": "Thu, 20 Sep 2018 19:35:00 GMT",
+    "feed_rank": 80,
+    "id": 18034912,
+    "link": "https://blogs.scientificamerican.com/illusion-chasers/people-like-you-more-than-you-know/",
+    "point_count": 558,
+    "title": "People Like You More Than You Know",
+    "type": "article",
+    "username": "ALee",
+    "website": "scientificamerican.com"
+  }
+]

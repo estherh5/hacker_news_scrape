@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 from utils.tests import HackerNewsTestCase
@@ -705,6 +706,42 @@ class TestCommentWords(HackerNewsTestCase):
         # Assert
         self.assertEqual(len(words), 2)
 
+    def test_words_get_sample(self):
+        # Arrange
+        db_connect = os.environ['DB_CONNECTION']
+        os.environ['DB_CONNECTION'] = ''
+        time_period = 'hour'
+
+        # Act
+        response = self.client.get(
+            '/api/hacker_news/stats/' + time_period + '/comment_words'
+            )
+        words = json.loads(response.get_data(as_text=True))
+
+        # Assert
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(words), 50)
+
+        # Ensure file data is returned
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/hour_comment_words.json', 'r') as sample_data:
+                self.assertEqual(json.load(sample_data), words)
+
+        # Ensure each word is a string
+        self.assertEqual(all(isinstance(
+            word['word'], str) for word in words), True)
+
+        # Ensure each word's ndoc is an integer
+        self.assertEqual(all(
+            isinstance(word['ndoc'], int) for word in words), True)
+
+        # Ensure each word's nentry is an integer
+        self.assertEqual(all(
+            isinstance(word['nentry'], int) for word in words), True)
+
+        # Reset environment variable
+        os.environ['DB_CONNECTION'] = db_connect
+
 
 # Test /api/hacker_news/stats/<time_period>/deepest_comment_tree endpoint [GET]
 class TestDeepestCommentTree(HackerNewsTestCase):
@@ -1276,6 +1313,81 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
         # Assert
         self.assertEqual(len(posts), 2)
 
+    def test_posts_get_sample(self):
+        # Arrange
+        db_connect = os.environ['DB_CONNECTION']
+        os.environ['DB_CONNECTION'] = ''
+        time_period = 'hour'
+
+        # Act
+        response = self.client.get(
+            '/api/hacker_news/stats/' + time_period +
+            '/posts_highest_comment_count'
+            )
+        posts = json.loads(response.get_data(as_text=True))
+
+        # Assert
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(posts), 5)
+
+        # Ensure file data is returned
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/hour_posts_highest_comment_count.json',
+            'r') as sample_data:
+                self.assertEqual(json.load(sample_data), posts)
+
+        # Ensure each post's comment count is an integer
+        self.assertEqual(all(isinstance(
+            post['comment_count'], int) for post in posts), True)
+
+        # Ensure each post's created timestamp matches GMT format
+        timestamp_pattern = re.compile(
+            r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (?:[0-2][0-9]|3[01]) ' +
+            '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} ' +
+            '(?:[01][0-9]|2[0-3]):[012345][0-9]:[012345][0-9] GMT'
+            )
+        self.assertEqual(all(bool(timestamp_pattern.match(
+            post['created'])) for post in posts), True)
+
+        # Ensure each post's feed rank is an integer
+        self.assertEqual(all(
+            isinstance(post['feed_rank'], int) for post in posts), True)
+
+        # Ensure each post's id is an integer
+        self.assertEqual(all(
+            isinstance(post['id'], int) for post in posts), True)
+
+        # Ensure each post's link is a string
+        self.assertEqual(all(
+            isinstance(post['link'], str) for post in posts), True)
+
+        # Ensure each post's point count is an integer
+        self.assertEqual(all(
+            isinstance(post['point_count'], int) for post in posts), True)
+
+        # Ensure each post's title is a string
+        self.assertEqual(all(
+            isinstance(post['title'], str) for post in posts), True)
+
+        # Ensure each post's type is one of the post types ('article', 'job',
+        # 'ask', 'show')
+        types = ['article', 'job', 'ask', 'show']
+
+        self.assertEqual(all(
+            any(type in post['type'] for type in types) for post in posts),
+            True)
+
+        # Ensure each post's username is a string
+        self.assertEqual(all(isinstance(
+            post['username'], str) for post in posts), True)
+
+        # Ensure each post's website is a string
+        self.assertEqual(all(isinstance(
+            post['website'], str) for post in posts), True)
+
+        # Reset environment variable
+        os.environ['DB_CONNECTION'] = db_connect
+
 
 # Test /api/hacker_news/stats/<time_period>/posts_highest_point_count endpoint
 # [GET]
@@ -1651,6 +1763,40 @@ class TestPostTypes(HackerNewsTestCase):
         # Ensure each type count is an integer
         self.assertEqual(all(isinstance(
             post_type['type_count'], int) for post_type in post_types), True)
+
+    def test_types_get_sample(self):
+        # Arrange
+        db_connect = os.environ['DB_CONNECTION']
+        os.environ['DB_CONNECTION'] = ''
+        time_period = 'hour'
+
+        # Act
+        response = self.client.get(
+            '/api/hacker_news/stats/' + time_period + '/post_types'
+            )
+        post_types = json.loads(response.get_data(as_text=True))
+
+        # Assert
+        self.assertEqual(response.status_code, 200)
+
+        # Ensure file data is returned
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/hour_post_types.json', 'r') as sample_data:
+                self.assertEqual(json.load(sample_data), post_types)
+
+        # Ensure each type is one of the post types ('article', 'job', 'ask',
+        # 'show')
+        types = ['article', 'job', 'ask', 'show']
+
+        self.assertEqual(all(any(type in post_type['type'] for type in types)
+            for post_type in post_types), True)
+
+        # Ensure each type count is an integer
+        self.assertEqual(all(isinstance(
+            post_type['type_count'], int) for post_type in post_types), True)
+
+        # Reset environment variable
+        os.environ['DB_CONNECTION'] = db_connect
 
 
 # Test /api/hacker_news/stats/<time_period>/title_words endpoint [GET]
@@ -2271,6 +2417,42 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(len(users), 2)
+
+    def test_users_get_sample(self):
+        # Arrange
+        db_connect = os.environ['DB_CONNECTION']
+        os.environ['DB_CONNECTION'] = ''
+        time_period = 'hour'
+
+        # Act
+        response = self.client.get(
+            '/api/hacker_news/stats/' + time_period + '/users_most_comments'
+            )
+        users = json.loads(response.get_data(as_text=True))
+
+        # Assert
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(users), 5)
+
+        # Ensure file data is returned
+        with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
+            '/sample_data/hour_users_most_comments.json', 'r') as sample_data:
+                self.assertEqual(json.load(sample_data), users)
+
+        # Ensure each user's comment count is an integer
+        self.assertEqual(all(isinstance(
+            user['comment_count'], int) for user in users), True)
+
+        # Ensure each user's username is a string
+        self.assertEqual(all(isinstance(
+            user['username'], str) for user in users), True)
+
+        # Ensure each user's word count is an integer
+        self.assertEqual(all(isinstance(
+            user['word_count'], int) for user in users), True)
+
+        # Reset environment variable
+        os.environ['DB_CONNECTION'] = db_connect
 
 
 # Test /api/hacker_news/stats/<time_period>/users_most_posts endpoint [GET]

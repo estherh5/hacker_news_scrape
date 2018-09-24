@@ -9,11 +9,12 @@ from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.types import Enum, TEXT, TIMESTAMP
 
 
-engine = create_engine(os.environ['DB_CONNECTION'])
+if os.environ['DB_CONNECTION']:
+    engine = create_engine(os.environ['DB_CONNECTION'])
+
+    Session = sessionmaker(bind=engine)
 
 Base = declarative_base()
-
-Session = sessionmaker(bind=engine)
 
 
 class Feed(Base):
