@@ -12,7 +12,7 @@ Jinja2==2.9.6
 MarkupSafe==1.0
 psycopg2-binary==2.7.4
 python-crontab==2.2.8
-requests==2.18.4
+requests==2.20.0
 six==1.11.0
 sqlalchemy==1.2.7
 testing.common.database==2.0.3
