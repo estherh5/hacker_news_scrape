@@ -8,7 +8,7 @@ Flask-Cors==3.0.3
 gunicorn==19.7.1
 idna==2.6
 itsdangerous==0.24
-Jinja2==2.9.6
+Jinja2==2.11.3
 MarkupSafe==1.0
 psycopg2-binary==2.7.4
 python-crontab==2.2.8
