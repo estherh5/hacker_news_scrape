@@ -103,10 +103,11 @@ async def scrape_page(page, feed_id, loop):
                 '%Y-%m-%d %H:%M', time.localtime(created))
 
             # Get post's link
-            link = post_row.find('a', 'storylink').get('href')
+            link_span = post_row.find('span', 'titleline').find('a')
+            link = link_span.get('href')
 
             # Get post's title
-            title = post_row.find('a', 'storylink').get_text()
+            title = link_span.get_text()
 
             # Set post's type based on title
             if 'Show HN:' in title:
