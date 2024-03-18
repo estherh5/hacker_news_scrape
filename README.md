@@ -9,15 +9,23 @@ Hacker News Scrape is a data scraper tool that uses [Requests](http://docs.pytho
 2. Install requirements by running `pip install -r requirements.txt`.
 3. Create a PostgreSQL database to store Hacker News feed, post, and comment data, as well as a user that has all privileges on your database.
 4. Set the following environment variables for the API:
-    * `FLASK_APP` for the Flask application name for your server ("server.py")
-    * `ENV_TYPE` for the environment status (set this to "Dev" for testing or "Prod" for live)
-    * `VIRTUAL_ENV_NAME` for the name of your virtual environment (e.g., 'hn'); this is used to schedule automatic data scrapes of the Hacker News main feed with crontab
-    * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., '<dialect+driver://username:password@host:port/database>'); note that if this variable is set to '', sample data will be returned for the endpoints called from the front-end web app only
+    * `FLASK_APP` for the Flask application name for your server (`server.py`)
+    * `ENV_TYPE` for the environment status (set this to `Dev` for testing or `Prod` for live)
+    * `VIRTUAL_ENV_NAME` for the name of your virtual environment (e.g., `hn`); this is used to schedule automatic data scrapes of the Hacker News main feed with crontab
+    * `PATH` for the path to the executable files that will run when automatic database backups are performed via crontab; you should append the path to your PostgreSQL directory here (e.g., `$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin`)
+    * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., `<dialect+driver://username:password@host:port/database>`); note that if this variable is empty, sample data will be returned for the endpoints called from the front-end web app only
     * `DB_NAME` for the name of your database
+    * `DB_USER` for the user who has all privileges on your database
+    * [`AWS_ACCESS_KEY_ID`](http://boto3.readthedocs.io/en/latest/guide/configuration.html#environment-variables) for the access key for your AWS account stored on Amazon S3 buckets
+    * [`AWS_SECRET_ACCESS_KEY`](http://boto3.readthedocs.io/en/latest/guide/configuration.html#environment-variables) for the secret key for your AWS account stored on Amazon S3 buckets
+    * `S3_BUCKET` for the name of your S3 bucket, which should not contain any periods (e.g., `crystalprism`)
+    * `S3_BACKUP_DIR` for the name of the S3 bucket's folder for database backups (e.g., `hn-db-backups/`)
+    * `BACKUP_DIR` for the directory where your database backups are stored locally
 5. Load the initial database structure by running `alembic upgrade head`.
     * Note that you might need to add `PYTHONPATH=.` to the beginning of the command if Alembic can't find your module (i.e., `PYTHONPATH=. alembic upgrade head`).
 6. Initialize the database by running `python management.py init_db` to create a custom text dictionary for use in statistic functions, and schedule hourly scrapes of Hacker News (every hour on the half hour) by running `python management.py sched_scrape`.
-7. Start the server by running `flask run` (if you are making changes while the server is running, enter `flask run --reload` instead for instant updates).
+7. Set up weekly backups for the database by running `python management.py sched_backup`.
+8. Start the server by running `flask run` (if you are making changes while the server is running, enter `flask run --reload` instead for instant updates).
 
 ## Content API
 To retrieve data for a specific Hacker News post or comment, a client can send a request to the following endpoints. Post and comment data get saved in the database "post" and "comment" tables respectively:
