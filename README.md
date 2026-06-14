@@ -1,19 +1,22 @@
-[![Build Status](https://travis-ci.com/estherh5/hacker_news_scrape.svg?branch=master)](https://travis-ci.com/estherh5/hacker_news_scrape)
-[![codecov](https://codecov.io/gh/estherh5/hacker_news_scrape/branch/master/graph/badge.svg)](https://codecov.io/gh/estherh5/hacker_news_scrape)
-
 # Hacker News Scrape
 Hacker News Scrape is a data scraper tool that uses [Requests](http://docs.python-requests.org/en/master/), [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/bs4/doc/), and [asyncio](https://docs.python.org/3/library/asyncio.html) libraries to asynchronously acquire and parse the first three pages of posts from the main feed of Y Combinator's news site, [Hacker News](http://news.ycombinator.com/). The data gets stored in an Amazon RDS instance of PostgreSQL and served client-side through a series of API endpoints that return statistics based on time period (e.g., `/api/hacker_news/stats/hour/average_comment_count` returns the average comment count for posts in the past hour, `/api/hacker_news/stats/week/top_website` returns the most common websites that articles were posted from). A front-end visualization of the data can be found at [Hacker News Stats](https://hn-stats.crystalprism.io/), which displays various [Highcharts](https://www.highcharts.com/) visualizations of the scraped data, including a pie chart that shows a breakdown of the different types of posts, a word cloud of the most common words used in post comments (excluding stop words), and a bubble chart of the top five users who posted the most comments (with each bubble's width reflecting their total words used). Buttons at the top of the Stats page allow the user to toggle between different time periods of data (e.g., past hour, past day, past week) to fetch data from the API.
 
 ## Setup
-1. Clone this repository on your server.
-2. Install requirements by running `pip install -r requirements.txt`.
+1. Install Python 3.12 and PostgreSQL. Heroku reads the Python version from
+   `.python-version`.
+2. Create and activate a virtual environment:
+   ```sh
+   python3.12 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
 3. Create a PostgreSQL database to store Hacker News feed, post, and comment data, as well as a user that has all privileges on your database.
 4. Set the following environment variables for the API:
-    * `FLASK_APP` for the Flask application name for your server (`server.py`)
+    * `FLASK_APP=server:app`
     * `ENV_TYPE` for the environment status (set this to `Dev` for testing or `Prod` for live)
     * `VIRTUAL_ENV_NAME` for the name of your virtual environment (e.g., `hn`); this is used to schedule automatic data scrapes of the Hacker News main feed with crontab
     * `PATH` for the path to the executable files that will run when automatic database backups are performed via crontab; you should append the path to your PostgreSQL directory here (e.g., `$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin`)
-    * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., `<dialect+driver://username:password@host:port/database>`); note that if this variable is empty, sample data will be returned for the endpoints called from the front-end web app only
+    * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., `<dialect+driver://username:password@host:port/database>`). Heroku's standard `DATABASE_URL` is also supported. If neither variable is set, sample data is returned for the endpoints called from the front-end web app.
     * `DB_NAME` for the name of your database
     * `DB_USER` for the user who has all privileges on your database
     * [`AWS_ACCESS_KEY_ID`](http://boto3.readthedocs.io/en/latest/guide/configuration.html#environment-variables) for the access key for your AWS account stored on Amazon S3 buckets
@@ -25,7 +28,17 @@ Hacker News Scrape is a data scraper tool that uses [Requests](http://docs.pytho
     * Note that you might need to add `PYTHONPATH=.` to the beginning of the command if Alembic can't find your module (i.e., `PYTHONPATH=. alembic upgrade head`).
 6. Initialize the database by running `python management.py init_db` to create a custom text dictionary for use in statistic functions, and schedule hourly scrapes of Hacker News (every hour on the half hour) by running `python management.py sched_scrape`.
 7. Set up weekly backups for the database by running `python management.py sched_backup`.
-8. Start the server by running `flask run` (if you are making changes while the server is running, enter `flask run --reload` instead for instant updates).
+8. Start the development server with `flask run --debug`. For production,
+   use the included Gunicorn command from `Procfile`.
+
+## Verification
+
+The integration suite starts temporary PostgreSQL databases, so PostgreSQL
+server binaries must be available on `PATH`.
+
+```sh
+python -m unittest discover -v
+```
 
 ## Content API
 To retrieve data for a specific Hacker News post or comment, a client can send a request to the following endpoints. Post and comment data get saved in the database "post" and "comment" tables respectively:

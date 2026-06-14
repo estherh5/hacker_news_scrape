@@ -7,7 +7,8 @@ import pathlib
 import subprocess
 
 from crontab import CronTab
-from datetime import datetime, timezone
+from datetime import datetime
+from sqlalchemy import text
 
 from hacker_news import hacker_news, models
 
@@ -19,7 +20,7 @@ def initialize_database():
     # Create custom text dictionary for detecting stop words without word
     # stemming
     session.execute(
-        """
+        text("""
         DO $$
         BEGIN
             IF NOT EXISTS
@@ -51,7 +52,7 @@ def initialize_database():
             ALTER MAPPING FOR asciihword, asciiword, hword, hword_asciipart,
                               hword_part, word
                          WITH simple_english;
-        """
+        """)
         )
 
     session.commit()
@@ -92,13 +93,17 @@ def backup_database():
     file_path = pathlib.Path(f'{os.environ["BACKUP_DIR"]}/{now}')
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Define command to run to back up database
-    command = f'pg_dump {os.environ["DB_CONNECTION"]} -Fc -f {file_path}'
-
     # Dump database backup to file path
-    ps = subprocess.check_output(
-        command, shell=True,
-        cwd=os.path.dirname(os.path.realpath(__file__))
+    subprocess.run(
+        [
+            'pg_dump',
+            os.environ['DB_CONNECTION'],
+            '-Fc',
+            '-f',
+            str(file_path),
+        ],
+        check=True,
+        cwd=pathlib.Path(__file__).resolve().parent,
     )
     print(f'Backup saved to {str(file_path)}')
 
@@ -111,9 +116,11 @@ def backup_database():
     bucket_name = os.environ['S3_BUCKET']
     bucket_folder = os.environ['S3_BACKUP_DIR']
 
-    data = open(file_path, 'rb')
-
-    s3.put_object(Bucket=bucket_name, Key=bucket_folder + now, Body=data)
+    s3.upload_file(
+        str(file_path),
+        bucket_name,
+        f'{bucket_folder.rstrip("/")}/{now}',
+    )
 
     print(f'Backup saved to S3 {bucket_name}/{bucket_folder} bucket')
 
@@ -147,19 +154,32 @@ def schedule_weekly_backup():
     return
 
 
-# Add arguments for initializing database in CLI
-parser = argparse.ArgumentParser(description='Management commands')
-parser.add_argument('action', type=str, help="an action for the database")
-args = parser.parse_args()
-if args.action == 'init_db':
-    initialize_database()
-if args.action == 'sched_scrape':
-    schedule_hourly_scrape()
-if args.action == 'scrape_hn':
-    hacker_news.scrape_loop()
-if args.action == 'backup_db':
-    # Only backup database on Sunday
-    if datetime.now(timezone.utc).weekday() == 6:
+def main():
+    parser = argparse.ArgumentParser(description='Management commands')
+    parser.add_argument(
+        'action',
+        choices=[
+            'init_db',
+            'sched_scrape',
+            'scrape_hn',
+            'backup_db',
+            'sched_backup',
+        ],
+        help='management action to run',
+    )
+    args = parser.parse_args()
+
+    if args.action == 'init_db':
+        initialize_database()
+    elif args.action == 'sched_scrape':
+        schedule_hourly_scrape()
+    elif args.action == 'scrape_hn':
+        hacker_news.scrape_loop()
+    elif args.action == 'backup_db':
         backup_database()
-if args.action == 'sched_backup':
-    schedule_weekly_backup()
+    elif args.action == 'sched_backup':
+        schedule_weekly_backup()
+
+
+if __name__ == '__main__':
+    main()

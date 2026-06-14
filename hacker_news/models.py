@@ -1,18 +1,28 @@
 import os
 
 from datetime import datetime
-from sqlalchemy import create_engine, Column, ForeignKey, Index, Integer, \
-    String
+from sqlalchemy import Column, ForeignKey, Index, Integer, create_engine
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.types import Enum, TEXT, TIMESTAMP
 
 
-if os.environ['DB_CONNECTION']:
-    engine = create_engine(os.environ['DB_CONNECTION'])
+def normalize_database_url(database_url):
+    if database_url and database_url.startswith('postgres://'):
+        return database_url.replace('postgres://', 'postgresql://', 1)
+    return database_url
 
-    Session = sessionmaker(bind=engine)
+
+def create_database_engine(database_url):
+    return create_engine(
+        normalize_database_url(database_url),
+        pool_pre_ping=True,
+    )
+
+
+database_url = os.getenv('DB_CONNECTION') or os.getenv('DATABASE_URL')
+engine = create_database_engine(database_url) if database_url else None
+Session = sessionmaker(bind=engine, expire_on_commit=False)
 
 Base = declarative_base()
 

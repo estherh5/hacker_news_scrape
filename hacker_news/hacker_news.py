@@ -5,13 +5,47 @@ import requests
 import time
 
 from bs4 import BeautifulSoup, UnicodeDammit
-from datetime import date, datetime, timedelta
-from flask import jsonify, make_response, request
-from sqlalchemy import desc, inspect
+from datetime import datetime, timedelta, timezone
+from flask import abort, jsonify, make_response, request
+from sqlalchemy import desc, text
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql import func
 
 from hacker_news import models
+
+REQUEST_TIMEOUT = 15
+MAX_RESULT_COUNT = 100
+
+
+def get_count(default):
+    raw_count = request.args.get('count')
+    if raw_count is None:
+        return default
+
+    try:
+        count = int(raw_count)
+    except (TypeError, ValueError):
+        count = None
+
+    if count is None or not 1 <= count <= MAX_RESULT_COUNT:
+        abort(
+            400,
+            description=(
+                f'count must be an integer between 1 and {MAX_RESULT_COUNT}'
+            ),
+        )
+    return count
+
+
+def serialize_query(query, session):
+    try:
+        return [dict(row._mapping) for row in query.all()]
+    finally:
+        session.close()
+
+
+def has_database():
+    return models.engine is not None
 
 
 def scrape_loop():
@@ -56,11 +90,13 @@ async def scrape_page(page, feed_id, loop):
     print('Scrape initiated for page ' + str(page) + ' of Hacker News.')
 
     # Get current UTC time in seconds
-    now = int(datetime.utcnow().strftime('%s'))
+    now = int(datetime.now().timestamp())
 
     # Get HTML tree from feed page
     feed_html = requests.get(
-        'https://news.ycombinator.com/news?p=' + str(page))
+        'https://news.ycombinator.com/news?p=' + str(page),
+        timeout=REQUEST_TIMEOUT,
+    )
 
     feed_content = feed_html.content
 
@@ -176,17 +212,19 @@ async def scrape_post(post_id, feed_id, loop, page_number):
     session = models.Session()
 
     # Get current UTC time in seconds
-    now = int(datetime.utcnow().strftime('%s'))
+    now = int(datetime.now().timestamp())
 
     # Get HTML tree from post's webpage, specifying page number if given
     if page_number:
         post_html = requests.get(
             'https://news.ycombinator.com/item?id=' + str(post_id) + '&p=' +
-            str(page_number))
+            str(page_number), timeout=REQUEST_TIMEOUT)
 
     else:
         post_html = requests.get(
-            'https://news.ycombinator.com/item?id=' + str(post_id))
+            'https://news.ycombinator.com/item?id=' + str(post_id),
+            timeout=REQUEST_TIMEOUT,
+        )
 
     post_content = post_html.content
 
@@ -362,36 +400,37 @@ def get_post(post_id):
 
 def get_feeds(time_period):
     # Return time period if there is no database connection
-    if not os.environ['DB_CONNECTION']:
+    if not has_database():
         return time_period
 
-    # Connect to database
     session = models.Session()
 
-    # Get requested feed(s) from database based on passed time value
-    if time_period == 'day':
-        feed_ids = [row.id for row in session.query(models.Feed).filter(
-            models.Feed.created > date.today()).all()]
+    try:
+        if time_period == 'all':
+            return None
 
-    # Get one feed per day in past week if 'week' is specified
-    elif time_period == 'week':
-        feed_ids = []
+        if time_period == 'hour':
+            rows = session.query(models.Feed.id).order_by(
+                models.Feed.created.desc()
+            ).limit(1).all()
+        else:
+            days = 1 if time_period == 'day' else 7
+            cutoff = (
+                datetime.now(timezone.utc).replace(tzinfo=None) -
+                timedelta(days=days)
+            )
+            rows = session.query(models.Feed.id).filter(
+                models.Feed.created >= cutoff
+            ).all()
 
-        for i in range(7):
-            feed_ids.append(session.query(models.Feed.id).filter(
-                models.Feed.created > date.today() - timedelta(days=i)).limit(
-                1).one()[0])
+        if not rows:
+            rows = session.query(models.Feed.id).order_by(
+                models.Feed.created.desc()
+            ).limit(1).all()
 
-    # Return no feed_ids if 'all' is specified so all data can be queried
-    elif time_period == 'all':
-        feed_ids = None
-
-    # Return most recent feed_id if time_period is 'hour' or unspecified
-    else:
-        feed_ids = [row.id for row in session.query(models.Feed).order_by(
-            models.Feed.created.desc()).limit(1)]
-
-    return feed_ids
+        return [row.id for row in rows]
+    finally:
+        session.close()
 
 
 def get_average_comment_count(feed_ids):
@@ -399,7 +438,7 @@ def get_average_comment_count(feed_ids):
     session = models.Session()
 
     # Get average comment count, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         average = round(session.query(
             func.avg(models.FeedPost.comment_count)).filter(
             models.FeedPost.feed_id.in_(feed_ids)).one()[0])
@@ -418,7 +457,7 @@ def get_average_comment_tree_depth(feed_ids):
     session = models.Session()
 
     # Get average comment level, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         average = round(session.query(func.avg(models.Comment.level)).join(
             models.FeedComment).filter(
             models.FeedComment.feed_id.in_(feed_ids)).one()[0])
@@ -436,7 +475,7 @@ def get_average_comment_word_count(feed_ids):
     session = models.Session()
 
     # Get average comment word count, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         average = round(session.query(func.avg(
             models.Comment.total_word_count)).join(models.FeedComment).filter(
             models.FeedComment.feed_id.in_(feed_ids)).one()[0])
@@ -455,7 +494,7 @@ def get_average_point_count(feed_ids):
     session = models.Session()
 
     # Get average post point count, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         average = round(session.query(func.avg(
             models.FeedPost.point_count)).filter(
             models.FeedPost.feed_id.in_(feed_ids)).one()[0])
@@ -472,13 +511,13 @@ def get_average_point_count(feed_ids):
 def get_comments_with_highest_word_counts(feed_ids):
     # Get number of requested comments from query parameter, using default if
     # null
-    count = int(request.args.get('count', 1))
+    count = get_count(1)
 
     # Connect to database
     session = models.Session()
 
     # Get comments with highest word counts, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Comment).with_entities(
             models.Comment.content, models.Comment.created, models.Comment.id,
             models.Comment.level, models.Comment.parent_comment,
@@ -500,36 +539,27 @@ def get_comments_with_highest_word_counts(feed_ids):
             models.Comment.total_word_count).order_by(
             models.Comment.total_word_count.desc()).limit(count)
 
-    session.close()
-
-    comments = []
-
-    for row in query:
-        comments.append(row._asdict())
-
-    return jsonify(comments)
+    return jsonify(serialize_query(query, session))
 
 
 def get_most_frequent_comment_words(feed_ids):
+    count = get_count(1)
+
     # Return sample data if there is no database connection
-    if not os.environ['DB_CONNECTION']:
+    if not has_database():
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/' + feed_ids + '_comment_words.json',
             'r') as sample_data:
-                return jsonify(json.load(sample_data))
-
-    # Get number of requested words from query parameter, using default if
-    # null
-    count = int(request.args.get('count', 1))
+                return jsonify(json.load(sample_data)[:count])
 
     # Connect to database
     session = models.Session()
 
     # Get highest frequency words used in comments, excluding stop words,
     # filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         query = session.execute(
-            """
+            text("""
               SELECT *
                 FROM ts_stat(
                      $$SELECT word_counts
@@ -547,14 +577,14 @@ def get_most_frequent_comment_words(feed_ids):
                WHERE LENGTH (word) > 1
             ORDER BY nentry DESC
                LIMIT :count;
-            """,
+            """),
             {'feed_id': feed_ids,
             'count': count}
             ).fetchall()
 
     else:
         query = session.execute(
-            """
+            text("""
               SELECT *
                 FROM ts_stat(
                      $$SELECT word_counts
@@ -563,7 +593,7 @@ def get_most_frequent_comment_words(feed_ids):
                WHERE LENGTH (word) > 1
             ORDER BY nentry DESC
                LIMIT :count;
-            """,
+            """),
             {'feed_id': feed_ids,
             'count': count}
             ).fetchall()
@@ -573,7 +603,7 @@ def get_most_frequent_comment_words(feed_ids):
     words = []
 
     for row in query:
-        words.append(dict(row))
+        words.append(dict(row._mapping))
 
     return jsonify(words)
 
@@ -584,7 +614,7 @@ def get_deepest_comment_tree(feed_ids):
 
     # Get highest level comment (deepest in comment tree), filtering by
     # feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Comment).with_entities(
             models.Comment.content, models.Comment.created, models.Comment.id,
             models.Comment.level, models.Comment.parent_comment,
@@ -652,22 +682,20 @@ def get_deepest_comment_tree(feed_ids):
 
 
 def get_posts_with_highest_comment_counts(feed_ids):
+    count = get_count(1)
+
     # Return sample data if there is no database connection
-    if not os.environ['DB_CONNECTION']:
+    if not has_database():
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/' + feed_ids + '_posts_highest_comment_count.json',
             'r') as sample_data:
-                return jsonify(json.load(sample_data))
-
-    # Get number of requested posts from query parameter, using default if
-    # null
-    count = int(request.args.get('count', 1))
+                return jsonify(json.load(sample_data)[:count])
 
     # Connect to database
     session = models.Session()
 
     # Get posts with highest comment counts, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Post).with_entities(
             models.Post.created, models.Post.id, models.Post.link,
             models.Post.title, models.Post.type, models.Post.username,
@@ -694,26 +722,19 @@ def get_posts_with_highest_comment_counts(feed_ids):
         query = session.query(subquery).order_by(
             subquery.columns.get('comment_count').desc()).limit(count)
 
-    session.close()
-
-    posts = []
-
-    for row in query:
-        posts.append(row._asdict())
-
-    return jsonify(posts)
+    return jsonify(serialize_query(query, session))
 
 
 def get_posts_with_highest_point_counts(feed_ids):
     # Get number of requested posts from query parameter, using default if
     # null
-    count = int(request.args.get('count', 1))
+    count = get_count(1)
 
     # Connect to database
     session = models.Session()
 
     # Get posts with highest point counts, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Post).with_entities(
             models.Post.created, models.Post.id, models.Post.link,
             models.Post.title, models.Post.type, models.Post.username,
@@ -740,19 +761,12 @@ def get_posts_with_highest_point_counts(feed_ids):
         query = session.query(subquery).order_by(
             subquery.columns.get('point_count').desc()).limit(count)
 
-    session.close()
-
-    posts = []
-
-    for row in query:
-        posts.append(row._asdict())
-
-    return jsonify(posts)
+    return jsonify(serialize_query(query, session))
 
 
 def get_post_types(feed_ids):
     # Return sample data if there is no database connection
-    if not os.environ['DB_CONNECTION']:
+    if not has_database():
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/' + feed_ids + '_post_types.json',
             'r') as sample_data:
@@ -763,7 +777,7 @@ def get_post_types(feed_ids):
 
     # Get count of types of posts ('article' vs. 'ask' vs. 'job' vs. 'show'),
     # filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Post).with_entities(
             models.Post.id, models.Post.type).join(
             models.FeedPost).filter(
@@ -785,29 +799,22 @@ def get_post_types(feed_ids):
             func.count('*').label("type_count")).group_by(
             subquery.columns.get('type')).order_by(desc('type_count'))
 
-    session.close()
-
-    types = []
-
-    for row in query:
-        types.append(row._asdict())
-
-    return jsonify(types)
+    return jsonify(serialize_query(query, session))
 
 
 def get_most_frequent_title_words(feed_ids):
     # Get number of requested words from query parameter, using default if
     # null
-    count = int(request.args.get('count', 1))
+    count = get_count(1)
 
     # Connect to database
     session = models.Session()
 
     # Get highest-frequency words used in post titles, excluding stop words,
     # filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         query = session.execute(
-            """
+            text("""
               SELECT *
                 FROM ts_stat(
                      $$SELECT to_tsvector('simple_english', LOWER(title))
@@ -825,14 +832,14 @@ def get_most_frequent_title_words(feed_ids):
                  AND LENGTH (word) > 1
             ORDER BY nentry DESC
                LIMIT :count;
-            """,
+            """),
             {'feed_id': feed_ids,
             'count': count}
             ).fetchall()
 
     else:
         query = session.execute(
-            """
+            text("""
               SELECT *
                 FROM ts_stat(
                      $$SELECT to_tsvector('simple_english', LOWER(title))
@@ -842,7 +849,7 @@ def get_most_frequent_title_words(feed_ids):
                  AND LENGTH (word) > 1
             ORDER BY nentry DESC
                LIMIT :count;
-            """,
+            """),
             {'feed_id': feed_ids,
             'count': count}
             ).fetchall()
@@ -852,7 +859,7 @@ def get_most_frequent_title_words(feed_ids):
     words = []
 
     for row in query:
-        words.append(dict(row))
+        words.append(dict(row._mapping))
 
     return jsonify(words)
 
@@ -860,13 +867,13 @@ def get_most_frequent_title_words(feed_ids):
 def get_top_posts(feed_ids):
     # Get number of requested posts from query parameter, using default if
     # null
-    count = int(request.args.get('count', 3))
+    count = get_count(3)
 
     # Connect to database
     session = models.Session()
 
     # Get posts in order of rank, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Post).with_entities(
             models.Post.created, models.Post.id, models.Post.link,
             models.Post.title, models.Post.type, models.Post.username,
@@ -897,27 +904,20 @@ def get_top_posts(feed_ids):
             subquery.columns.get('feed_rank'),
             subquery.columns.get('point_count').desc()).limit(count)
 
-    session.close()
-
-    posts = []
-
-    for row in query:
-        posts.append(row._asdict())
-
-    return jsonify(posts)
+    return jsonify(serialize_query(query, session))
 
 
 def get_top_websites(feed_ids):
     # Get number of requested websites from query parameter, using default if
     # null
-    count = int(request.args.get('count', 1))
+    count = get_count(1)
 
     # Connect to database
     session = models.Session()
 
     # Get websites that highest number of posts are from, filtering by feed_ids
     # if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Post).with_entities(
             models.Post.id, models.Post.website).join(
             models.FeedPost).filter(
@@ -943,34 +943,25 @@ def get_top_websites(feed_ids):
             subquery.columns.get('website')).order_by(
             desc('link_count')).limit(count)
 
-    session.close()
-
-    websites = []
-
-    for row in query:
-        websites.append(row._asdict())
-
-    return jsonify(websites)
+    return jsonify(serialize_query(query, session))
 
 
 def get_users_with_most_comments(feed_ids):
+    count = get_count(1)
+
     # Return sample data if there is no database connection
-    if not os.environ['DB_CONNECTION']:
+    if not has_database():
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/' + feed_ids + '_users_most_comments.json',
             'r') as sample_data:
-                return jsonify(json.load(sample_data))
-
-    # Get number of requested users from query parameter, using default if
-    # null
-    count = int(request.args.get('count', 1))
+                return jsonify(json.load(sample_data)[:count])
 
     # Connect to database
     session = models.Session()
 
     # Get users who posted the most comments, filtering by feed_ids if
     # specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Comment).with_entities(
             models.Comment.id, models.Comment.total_word_count,
             models.Comment.username).join(models.FeedComment).filter(
@@ -1001,26 +992,19 @@ def get_users_with_most_comments(feed_ids):
             subquery.columns.get('username')).order_by(
             desc('comment_count')).limit(count)
 
-    session.close()
-
-    users = []
-
-    for row in query:
-        users.append(row._asdict())
-
-    return jsonify(users)
+    return jsonify(serialize_query(query, session))
 
 
 def get_users_with_most_posts(feed_ids):
     # Get number of requested users from query parameter, using default if
     # null
-    count = int(request.args.get('count', 1))
+    count = get_count(1)
 
     # Connect to database
     session = models.Session()
 
     # Get users who posted the most posts, filtering by feed_ids if specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Post).with_entities(
             models.Post.id, models.Post.username).join(models.FeedPost).filter(
             models.FeedPost.feed_id.in_(feed_ids)).filter(
@@ -1044,27 +1028,20 @@ def get_users_with_most_posts(feed_ids):
             subquery.columns.get('username')).order_by(
             desc('post_count')).limit(count)
 
-    session.close()
-
-    users = []
-
-    for row in query:
-        users.append(row._asdict())
-
-    return jsonify(users)
+    return jsonify(serialize_query(query, session))
 
 
 def get_users_with_most_words_in_comments(feed_ids):
     # Get number of requested users from query parameter, using default if
     # null
-    count = int(request.args.get('count', 1))
+    count = get_count(1)
 
     # Connect to database
     session = models.Session()
 
     # Get users who posted the most words in comments, filtering by feed_ids if
     # specified
-    if feed_ids:
+    if feed_ids is not None:
         subquery = session.query(models.Comment).with_entities(
             models.Comment.id, models.Comment.total_word_count,
             models.Comment.username).join(models.FeedComment).filter(
@@ -1095,11 +1072,4 @@ def get_users_with_most_words_in_comments(feed_ids):
             subquery.columns.get('username')).order_by(
             desc('word_count')).limit(count)
 
-    session.close()
-
-    users = []
-
-    for row in query:
-        users.append(row._asdict())
-
-    return jsonify(users)
+    return jsonify(serialize_query(query, session))
