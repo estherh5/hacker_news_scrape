@@ -17,8 +17,7 @@ all-time average accordingly.
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 
 from hacker_news import hacker_news, models
 
@@ -37,55 +36,47 @@ def merge_feed_rollups(session, feed_id):
     from the caller running this exactly once per feed, inside the same
     transaction that sets feed.rolled_up.
     """
-    totals = session.query(
-        func.count().label('post_row_count'),
-        func.coalesce(func.sum(models.FeedPost.point_count), 0).label('points'),
-        func.coalesce(
-            func.sum(models.FeedPost.comment_count), 0).label('comments'),
-    ).filter(models.FeedPost.feed_id == feed_id).one()
-
     session.execute(
-        insert(models.FeedSummary).values(
-            feed_id=feed_id,
-            post_row_count=totals.post_row_count,
-            sum_point_count=totals.points,
-            sum_comment_count=totals.comments,
-        ).on_conflict_do_update(
-            index_elements=['feed_id'],
-            set_={
-                'post_row_count':
-                    models.FeedSummary.post_row_count + totals.post_row_count,
-                'sum_point_count':
-                    models.FeedSummary.sum_point_count + totals.points,
-                'sum_comment_count':
-                    models.FeedSummary.sum_comment_count + totals.comments,
-            },
-        )
-    )
+        text("""
+            INSERT INTO feed_summary AS t
+                        (feed_id, post_row_count, sum_point_count,
+                         sum_comment_count)
+                 SELECT :feed_id, count(*), COALESCE(sum(point_count), 0),
+                        COALESCE(sum(comment_count), 0)
+                   FROM feed_post
+                  WHERE feed_id = :feed_id
+            ON CONFLICT (feed_id) DO UPDATE
+                    SET post_row_count = t.post_row_count +
+                                         EXCLUDED.post_row_count,
+                        sum_point_count = t.sum_point_count +
+                                          EXCLUDED.sum_point_count,
+                        sum_comment_count = t.sum_comment_count +
+                                            EXCLUDED.sum_comment_count
+        """), {'feed_id': feed_id})
 
-    rows = session.query(models.FeedPost).filter(
-        models.FeedPost.feed_id == feed_id).all()
-
-    for row in rows:
-        session.execute(
-            insert(models.PostStat).values(
-                post_id=row.post_id,
-                max_comment_count=row.comment_count,
-                max_point_count=row.point_count,
-                best_feed_rank=row.feed_rank,
-            ).on_conflict_do_update(
-                index_elements=['post_id'],
-                set_={
-                    'max_comment_count': func.greatest(
-                        models.PostStat.max_comment_count, row.comment_count),
-                    'max_point_count': func.greatest(
-                        models.PostStat.max_point_count, row.point_count),
-                    # Rank 1 is the top of the front page, so best is lowest
-                    'best_feed_rank': func.least(
-                        models.PostStat.best_feed_rank, row.feed_rank),
-                },
-            )
-        )
+    # One statement rather than one per post. A feed carries roughly eighty
+    # posts, so the row-at-a-time version cost eighty round trips per feed and
+    # dominated the runtime of a full backfill.
+    session.execute(
+        text("""
+            INSERT INTO post_stat AS t
+                        (post_id, max_comment_count, max_point_count,
+                         best_feed_rank)
+                 SELECT post_id, max(comment_count), max(point_count),
+                        min(feed_rank)
+                   FROM feed_post
+                  WHERE feed_id = :feed_id
+               GROUP BY post_id
+            ON CONFLICT (post_id) DO UPDATE
+                    SET max_comment_count = GREATEST(t.max_comment_count,
+                                                     EXCLUDED.max_comment_count),
+                        max_point_count = GREATEST(t.max_point_count,
+                                                   EXCLUDED.max_point_count),
+                        -- Rank 1 is the top of the front page, so best is
+                        -- the lowest
+                        best_feed_rank = LEAST(t.best_feed_rank,
+                                               EXCLUDED.best_feed_rank)
+        """), {'feed_id': feed_id})
 
 
 def merge_comment_rollups(session, comment_ids):
@@ -208,14 +199,22 @@ def update_pins(session, comment_ids):
         """),
         {'limit': limit})
 
-    # The deepest comment plus every ancestor, or the tree cannot render
+    # The deepest comment plus every ancestor, or the tree cannot render.
+    #
+    # Candidates are this batch plus whatever is already pinned for depth, so
+    # the reigning champion defends its title. Comments still inside the
+    # retention window are deliberately excluded: they are live, so the
+    # endpoint already sees them, and they get their turn when they age out.
     session.execute(
         text("""
+            CREATE TEMPORARY TABLE deepest_chain AS
             WITH RECURSIVE deepest AS (
-                SELECT id, parent_comment
-                  FROM comment
-                 WHERE id = ANY(CAST(:ids AS integer[]))
-              ORDER BY level DESC
+                SELECT c.id, c.parent_comment
+                  FROM comment c
+                 WHERE c.id = ANY(CAST(:ids AS integer[]))
+                    OR c.id IN (SELECT comment_id FROM pinned_comment
+                                 WHERE reason = 'deepest_tree')
+              ORDER BY c.level DESC
                  LIMIT 1
             ), chain AS (
                 SELECT id, parent_comment FROM deepest
@@ -224,11 +223,28 @@ def update_pins(session, comment_ids):
                   FROM comment c
                        JOIN chain ON chain.parent_comment = c.id
             )
-            INSERT INTO pinned_comment (comment_id, reason)
-                 SELECT id, 'deepest_tree' FROM chain
-            ON CONFLICT (comment_id) DO NOTHING
+            SELECT id FROM chain
         """),
         {'ids': comment_ids})
+
+    try:
+        # Retire the previous champion's chain. Without this a fresh chain is
+        # pinned every single run and nothing is ever released -- a backfill
+        # of 1,607 feeds accumulated 11,862 pinned comments and kept most of
+        # the archive alive, defeating the point of pruning.
+        session.execute(text("""
+            DELETE FROM pinned_comment
+                  WHERE reason = 'deepest_tree'
+                    AND comment_id NOT IN (SELECT id FROM deepest_chain)
+        """))
+
+        session.execute(text("""
+            INSERT INTO pinned_comment (comment_id, reason)
+                 SELECT id, 'deepest_tree' FROM deepest_chain
+            ON CONFLICT (comment_id) DO NOTHING
+        """))
+    finally:
+        session.execute(text('DROP TABLE deepest_chain'))
 
     rows = session.execute(
         text('SELECT comment_id FROM pinned_comment')).fetchall()
@@ -320,6 +336,12 @@ def prune_aged_feeds(now=None):
             session.commit()
 
             pruned += 1
+
+            # A full backfill runs for a long time; without this it is
+            # impossible to tell progress from a hang
+            if pruned % 100 == 0:
+                print('Pruned %d/%d feeds.' % (pruned, len(feed_ids)),
+                    flush=True)
         except Exception:
             session.rollback()
 

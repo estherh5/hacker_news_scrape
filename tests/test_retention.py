@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest import mock
 
 from sqlalchemy import func, text
@@ -509,3 +510,89 @@ class GoldenEquivalenceTest(HackerNewsTestCase):
         changed = [u for u in urls if after[u] != before[u]]
 
         self.assertEqual(changed, [], 'changed across prune: %s' % changed)
+
+
+class PruneDataLossTest(HackerNewsTestCase):
+    def test_deleting_a_parent_does_not_destroy_a_surviving_child(self):
+        """parent_comment was ON DELETE CASCADE.
+
+        Pruning an aged-out parent silently deleted its children too, without
+        merging them into the rollups. A backfill rehearsal against the
+        production dataset lost 1,143 documents from comment_words that way.
+
+        Tests the constraint directly rather than through prune_aged_feeds:
+        at fixture scale every comment is an all-time record holder and gets
+        correctly pinned, so no parent is ever deleted to trigger it.
+        """
+        session = models.Session()
+
+        try:
+            base = session.get(models.Comment, 8)
+
+            session.add(models.Comment(id=930, content='parent',
+                created=base.created, level=0, parent_comment=None,
+                post_id=base.post_id, total_word_count=1, username='pa',
+                word_counts=func.to_tsvector('simple_english', 'parent')))
+            session.add(models.Comment(id=931, content='child',
+                created=base.created, level=1, parent_comment=930,
+                post_id=base.post_id, total_word_count=1, username='ch',
+                word_counts=func.to_tsvector('simple_english', 'child')))
+            session.commit()
+
+            session.query(models.Comment).filter(
+                models.Comment.id == 930).delete(synchronize_session=False)
+            session.commit()
+
+            child = session.get(models.Comment, 931)
+
+            self.assertIsNotNone(child, 'child was cascade-deleted with its '
+                'parent, losing its facts before they could be rolled up')
+            self.assertIsNone(child.parent_comment,
+                'a pruned parent should leave a null link')
+        finally:
+            session.close()
+
+    def test_pins_do_not_grow_with_every_pruned_feed(self):
+        """A fresh deepest-tree chain was pinned every run and none released.
+
+        Backfilling 1,607 feeds accumulated 11,862 pinned comments and kept
+        most of the archive alive, defeating the point of pruning.
+        """
+        session = models.Session()
+
+        try:
+            base = session.get(models.Comment, 8)
+
+            for offset in range(6):
+                fid, cid = 10 + offset, 940 + offset
+
+                session.add(models.Feed(id=fid,
+                    created=base.created - timedelta(days=offset + 1)))
+                session.add(models.Comment(id=cid, content='deep%d' % cid,
+                    created=base.created, level=offset, parent_comment=None,
+                    post_id=base.post_id, total_word_count=1,
+                    username='deep', word_counts=func.to_tsvector(
+                        'simple_english', 'deep')))
+                session.add(models.FeedComment(comment_id=cid, feed_id=fid,
+                    feed_rank=1))
+
+            session.commit()
+        finally:
+            session.close()
+
+        pruned = retention.prune_aged_feeds()
+
+        session = models.Session()
+
+        try:
+            tree_pins = session.query(models.PinnedComment).filter_by(
+                reason='deepest_tree').count()
+        finally:
+            session.close()
+
+        self.assertTrue(pruned >= 6, 'expected the aged feeds to be pruned')
+
+        # One chain is held, not one per feed. These comments have no parents,
+        # so a correctly retired chain is at most a single row.
+        self.assertLessEqual(tree_pins, 1,
+            'deepest-tree pins accumulated once per pruned feed')

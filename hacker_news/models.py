@@ -61,13 +61,18 @@ class Comment(Base):
     created = Column(TIMESTAMP(timezone=False), default=datetime.utcnow,
         nullable=False)
     level = Column(Integer, nullable=False)
+    # SET NULL, not CASCADE: pruning an aged-out parent must not silently
+    # delete its children before their facts have been rolled up
     parent_comment = Column(Integer,
-        ForeignKey('comment.id', ondelete='CASCADE'), nullable=True)
+        ForeignKey('comment.id', ondelete='SET NULL'), nullable=True)
     post_id = Column(Integer, ForeignKey('post.id', ondelete='CASCADE'),
         nullable=False)
     total_word_count = Column(Integer, default=0, nullable=False)
     username = Column(TEXT, nullable=False)
     word_counts = Column(TSVECTOR, nullable=False)
+    # parent_comment is a self-referencing FK with ON DELETE CASCADE; without
+    # this index every comment deletion scans the whole table for children
+    __table_args__ = (Index('comment_parent_comment_index', 'parent_comment'), )
 
     post = relationship("Post", back_populates='comments')
 
