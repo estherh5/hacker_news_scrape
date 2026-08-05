@@ -96,6 +96,9 @@ class FeedComment(Base):
     feed_id = Column(Integer, ForeignKey('feed.id', ondelete='CASCADE'),
         primary_key=True, nullable=False)
     feed_rank = Column(Integer, nullable=False)
+    # The primary key leads with comment_id, so it cannot serve the stats
+    # queries, which all filter by feed_id
+    __table_args__ = (Index('feed_comment_feed_id_index', 'feed_id'), )
 
     comment = relationship("Comment", back_populates='feeds')
 
