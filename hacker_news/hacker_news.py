@@ -61,20 +61,35 @@ def scrape_loop():
 
     feed_id = new_feed.id
 
-    # Create asynchronous tasks to scrape first three pages of Hacker News
-    loop = asyncio.get_event_loop()
+    # Create asynchronous tasks to scrape first three pages of Hacker News.
+    # Use a fresh loop rather than get_event_loop() so a second scrape in the
+    # same process does not inherit the closed loop from the first.
+    loop = asyncio.new_event_loop()
 
-    tasks = [
-        loop.create_task(scrape_page(1, feed_id, loop)),
-        loop.create_task(scrape_page(2, feed_id, loop)),
-        loop.create_task(scrape_page(3, feed_id, loop))
-        ]
+    asyncio.set_event_loop(loop)
 
-    wait_tasks = asyncio.wait(tasks)
+    try:
+        tasks = [
+            loop.create_task(scrape_page(1, feed_id, loop)),
+            loop.create_task(scrape_page(2, feed_id, loop)),
+            loop.create_task(scrape_page(3, feed_id, loop))
+            ]
 
-    loop.run_until_complete(wait_tasks)
+        # gather() re-raises the first task exception. asyncio.wait() would
+        # capture it inside the Task instead, so a scrape that failed on every
+        # page still reported success and left an empty feed behind.
+        loop.run_until_complete(asyncio.gather(*tasks))
 
-    loop.close()
+        # Comment scraping is queued by scrape_page as separate tasks; drain
+        # them before closing, or the loop can shut down mid-scrape
+        pending = asyncio.all_tasks(loop)
+
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending))
+    finally:
+        loop.close()
+
+        asyncio.set_event_loop(None)
 
     session.close()
 

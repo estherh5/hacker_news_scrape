@@ -5,7 +5,7 @@ import testing.postgresql
 import unittest
 
 from datetime import date, datetime, timedelta
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
 from testing.common.database import DatabaseFactory
@@ -218,6 +218,16 @@ def initialize_test_database(postgresql, mock_get):
         feed_id=all_feed.id, feed_rank=7)
 
     session.add(all_feed_comment)
+
+    session.commit()
+
+    # The rows above set their ids explicitly, which does not advance the
+    # serial sequences. Without this, the next inserted Feed, Post or Comment
+    # reuses an id that already exists and fails on the primary key.
+    for table in ('feed', 'post', 'comment'):
+        session.execute(text(
+            "SELECT setval(pg_get_serial_sequence('%s', 'id'), "
+            "COALESCE((SELECT max(id) FROM %s), 1))" % (table, table)))
 
     session.commit()
 
