@@ -508,7 +508,7 @@ def all_period_users(session, order_column, count):
     return [dict(row._mapping) for row in rows]
 
 
-def all_period_posts(session, order_column, count):
+def all_period_posts(session, order_sql, count):
     """Ranked posts over all history.
 
     Posts are never pruned, so titles and links always come from the live
@@ -549,9 +549,9 @@ def all_period_posts(session, order_column, count):
             -- The pre-rollup query inner-joined feed_post, so a post that
             -- never appeared in a feed was excluded. Keep that.
             HAVING ps.post_id IS NOT NULL OR COUNT(fp.post_id) > 0
-          ORDER BY {order} DESC
+          ORDER BY {order}
              LIMIT :count
-        """.format(order=order_column)),
+        """.format(order=order_sql)),
         {'count': count, 'worst': worst_rank}).fetchall()
 
     return [dict(row._mapping) for row in rows]
@@ -865,7 +865,7 @@ def get_posts_with_highest_comment_counts(feed_ids):
             subquery.columns.get('comment_count').desc()).limit(count)
 
     else:
-        return jsonify(all_period_posts(session, 'comment_count', count))
+        return jsonify(all_period_posts(session, 'comment_count DESC', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -894,7 +894,7 @@ def get_posts_with_highest_point_counts(feed_ids):
             subquery.columns.get('point_count').desc()).limit(count)
 
     else:
-        return jsonify(all_period_posts(session, 'point_count', count))
+        return jsonify(all_period_posts(session, 'point_count DESC', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -1025,19 +1025,9 @@ def get_top_posts(feed_ids):
             subquery.columns.get('point_count').desc()).limit(count)
 
     else:
-        subquery = session.query(models.Post).with_entities(
-            models.Post.created, models.Post.id, models.Post.link,
-            models.Post.title, models.Post.type, models.Post.username,
-            models.Post.website, models.FeedPost.comment_count,
-            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
-            models.FeedPost).order_by(
-            models.Post.id, models.FeedPost.feed_rank,
-            models.FeedPost.point_count.desc()).distinct(
-            models.Post.id).subquery()
-
-        query = session.query(subquery).order_by(
-            subquery.columns.get('feed_rank'),
-            subquery.columns.get('point_count').desc()).limit(count)
+        # Ascending: rank 1 is the top of the front page
+        return jsonify(all_period_posts(
+            session, 'feed_rank, point_count DESC', count))
 
     return jsonify(serialize_query(query, session))
 
