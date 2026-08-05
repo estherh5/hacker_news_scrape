@@ -529,7 +529,7 @@ def get_average_point_count(feed_ids):
 def get_comments_with_highest_word_counts(feed_ids):
     # Get number of requested comments from query parameter, using default if
     # null
-    count = get_count(1)
+    count = get_count(5)
 
     # Connect to database
     session = models.Session()
@@ -561,7 +561,7 @@ def get_comments_with_highest_word_counts(feed_ids):
 
 
 def get_most_frequent_comment_words(feed_ids):
-    count = get_count(1)
+    count = get_count(50)
 
     # Return sample data if there is no database connection
     if not has_database():
@@ -700,7 +700,7 @@ def get_deepest_comment_tree(feed_ids):
 
 
 def get_posts_with_highest_comment_counts(feed_ids):
-    count = get_count(1)
+    count = get_count(5)
 
     # Return sample data if there is no database connection
     if not has_database():
@@ -746,7 +746,7 @@ def get_posts_with_highest_comment_counts(feed_ids):
 def get_posts_with_highest_point_counts(feed_ids):
     # Get number of requested posts from query parameter, using default if
     # null
-    count = get_count(1)
+    count = get_count(5)
 
     # Connect to database
     session = models.Session()
@@ -823,7 +823,7 @@ def get_post_types(feed_ids):
 def get_most_frequent_title_words(feed_ids):
     # Get number of requested words from query parameter, using default if
     # null
-    count = get_count(1)
+    count = get_count(50)
 
     # Connect to database
     session = models.Session()
@@ -928,7 +928,7 @@ def get_top_posts(feed_ids):
 def get_top_websites(feed_ids):
     # Get number of requested websites from query parameter, using default if
     # null
-    count = get_count(1)
+    count = get_count(5)
 
     # Connect to database
     session = models.Session()
@@ -965,7 +965,7 @@ def get_top_websites(feed_ids):
 
 
 def get_users_with_most_comments(feed_ids):
-    count = get_count(1)
+    count = get_count(5)
 
     # Return sample data if there is no database connection
     if not has_database():
@@ -1016,7 +1016,7 @@ def get_users_with_most_comments(feed_ids):
 def get_users_with_most_posts(feed_ids):
     # Get number of requested users from query parameter, using default if
     # null
-    count = get_count(1)
+    count = get_count(5)
 
     # Connect to database
     session = models.Session()
@@ -1052,7 +1052,7 @@ def get_users_with_most_posts(feed_ids):
 def get_users_with_most_words_in_comments(feed_ids):
     # Get number of requested users from query parameter, using default if
     # null
-    count = get_count(1)
+    count = get_count(5)
 
     # Connect to database
     session = models.Session()

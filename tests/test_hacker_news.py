@@ -362,7 +362,7 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(comments), 1)
+        self.assertEqual(len(comments), 5)
 
         # Ensure each comment's content is a string
         self.assertEqual(all(isinstance(
@@ -417,7 +417,7 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(comments), 1)
+        self.assertEqual(len(comments), 5)
 
         # Ensure each comment's content is a string
         self.assertEqual(all(isinstance(
@@ -472,7 +472,7 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(comments), 1)
+        self.assertEqual(len(comments), 5)
 
         # Ensure each comment's content is a string
         self.assertEqual(all(isinstance(
@@ -527,7 +527,7 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(comments), 1)
+        self.assertEqual(len(comments), 5)
 
         # Ensure each comment's content is a string
         self.assertEqual(all(isinstance(
@@ -600,7 +600,7 @@ class TestCommentWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -626,7 +626,7 @@ class TestCommentWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -652,7 +652,7 @@ class TestCommentWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -678,7 +678,7 @@ class TestCommentWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -727,13 +727,13 @@ class TestCommentWords(HackerNewsTestCase):
         # Assert
         self.assertEqual(response.status_code, 200)
         # The sample-data path slices to the same default count the live path
-        # uses, so both return one entry unless ?count= asks for more
-        self.assertEqual(len(words), 1)
+        # uses, and each sample file holds exactly that many entries
+        self.assertEqual(len(words), 50)
 
         # Ensure file data is returned
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/hour_comment_words.json', 'r') as sample_data:
-                self.assertEqual(json.load(sample_data)[:1], words)
+                self.assertEqual(json.load(sample_data), words)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -1063,7 +1063,7 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 3)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1127,7 +1127,7 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 4)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1191,7 +1191,7 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 5)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1255,7 +1255,7 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 5)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1343,14 +1343,14 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
         # Assert
         self.assertEqual(response.status_code, 200)
         # The sample-data path slices to the same default count the live path
-        # uses, so both return one entry unless ?count= asks for more
-        self.assertEqual(len(posts), 1)
+        # uses, and each sample file holds exactly that many entries
+        self.assertEqual(len(posts), 5)
 
         # Ensure file data is returned
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/hour_posts_highest_comment_count.json',
             'r') as sample_data:
-                self.assertEqual(json.load(sample_data)[:1], posts)
+                self.assertEqual(json.load(sample_data), posts)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1422,7 +1422,7 @@ class TestPostsHighestPointCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 3)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1486,7 +1486,7 @@ class TestPostsHighestPointCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 4)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1550,7 +1550,7 @@ class TestPostsHighestPointCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 5)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1614,7 +1614,7 @@ class TestPostsHighestPointCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(posts), 5)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1836,7 +1836,7 @@ class TestTitleWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -1862,7 +1862,7 @@ class TestTitleWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -1888,7 +1888,7 @@ class TestTitleWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -1914,7 +1914,7 @@ class TestTitleWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 1)
+        self.assertEqual(len(words), 2)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -2228,7 +2228,7 @@ class TestTopWebsites(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(websites), 1)
+        self.assertEqual(len(websites), 2)
 
         # Ensure each link count is an integer
         self.assertEqual(all(isinstance(
@@ -2250,7 +2250,7 @@ class TestTopWebsites(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(websites), 1)
+        self.assertEqual(len(websites), 2)
 
         # Ensure each link count is an integer
         self.assertEqual(all(isinstance(
@@ -2272,7 +2272,7 @@ class TestTopWebsites(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(websites), 1)
+        self.assertEqual(len(websites), 2)
 
         # Ensure each link count is an integer
         self.assertEqual(all(isinstance(
@@ -2294,7 +2294,7 @@ class TestTopWebsites(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(websites), 1)
+        self.assertEqual(len(websites), 2)
 
         # Ensure each link count is an integer
         self.assertEqual(all(isinstance(
@@ -2334,7 +2334,7 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2360,7 +2360,7 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2386,7 +2386,7 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2412,7 +2412,7 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2461,13 +2461,13 @@ class TestUsersMostComments(HackerNewsTestCase):
         # Assert
         self.assertEqual(response.status_code, 200)
         # The sample-data path slices to the same default count the live path
-        # uses, so both return one entry unless ?count= asks for more
-        self.assertEqual(len(users), 1)
+        # uses, and each sample file holds exactly that many entries
+        self.assertEqual(len(users), 5)
 
         # Ensure file data is returned
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/hour_users_most_comments.json', 'r') as sample_data:
-                self.assertEqual(json.load(sample_data)[:1], users)
+                self.assertEqual(json.load(sample_data), users)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2500,7 +2500,7 @@ class TestUsersMostPosts(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's post count is an integer
         self.assertEqual(all(isinstance(
@@ -2522,7 +2522,7 @@ class TestUsersMostPosts(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's post count is an integer
         self.assertEqual(all(isinstance(
@@ -2544,7 +2544,7 @@ class TestUsersMostPosts(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's post count is an integer
         self.assertEqual(all(isinstance(
@@ -2566,7 +2566,7 @@ class TestUsersMostPosts(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's post count is an integer
         self.assertEqual(all(isinstance(
@@ -2606,7 +2606,7 @@ class TestUsersMostWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2632,7 +2632,7 @@ class TestUsersMostWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2658,7 +2658,7 @@ class TestUsersMostWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2684,7 +2684,7 @@ class TestUsersMostWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(

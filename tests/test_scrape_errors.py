@@ -1,7 +1,7 @@
 from unittest import mock
 
 from hacker_news import hacker_news
-from utils.tests import HackerNewsTestCase
+from utils.tests import HackerNewsTestCase, mocked_requests_get
 
 
 class ScrapeFailureVisibilityTest(HackerNewsTestCase):
@@ -23,5 +23,6 @@ class ScrapeFailureVisibilityTest(HackerNewsTestCase):
     def test_scrape_loop_can_run_more_than_once(self):
         # scrape_loop closed the global event loop, so a second call in the
         # same process failed with 'Event loop is closed'
-        hacker_news.scrape_loop()
-        hacker_news.scrape_loop()
+        with mock.patch('requests.get', side_effect=mocked_requests_get):
+            hacker_news.scrape_loop()
+            hacker_news.scrape_loop()
