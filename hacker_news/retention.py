@@ -15,6 +15,8 @@ per-feed would count each comment about thirteen times and inflate every
 all-time average accordingly.
 """
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert
 
@@ -232,3 +234,85 @@ def update_pins(session, comment_ids):
         text('SELECT comment_id FROM pinned_comment')).fetchall()
 
     return {row[0] for row in rows}
+
+
+def prune_aged_feeds(now=None):
+    """Roll up and delete every feed older than RETENTION_DAYS.
+
+    One transaction per feed. The merges are += accumulations and are NOT
+    idempotent on their own -- setting feed.rolled_up inside the same
+    transaction is what makes this exactly-once. Never split them.
+
+    Returns the number of feeds pruned.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    cutoff = now - timedelta(days=RETENTION_DAYS)
+
+    session = models.Session()
+
+    try:
+        feed_ids = [row.id for row in session.query(models.Feed.id).filter(
+            models.Feed.created < cutoff,
+            models.Feed.rolled_up.is_(False),
+        ).order_by(models.Feed.created).all()]
+    finally:
+        session.close()
+
+    pruned = 0
+
+    for feed_id in feed_ids:
+        session = models.Session()
+
+        try:
+            merge_feed_rollups(session, feed_id)
+
+            session.query(models.FeedPost).filter(
+                models.FeedPost.feed_id == feed_id).delete(
+                synchronize_session=False)
+
+            session.query(models.FeedComment).filter(
+                models.FeedComment.feed_id == feed_id).delete(
+                synchronize_session=False)
+
+            # Comments with no remaining link to ANY feed have fully aged out.
+            # This is what lets a comment that stayed on the front page longer
+            # than the window survive until its last link disappears.
+            orphan_ids = [row[0] for row in session.execute(text("""
+                SELECT c.id
+                  FROM comment c
+                 WHERE NOT EXISTS (SELECT 1 FROM feed_comment fc
+                                    WHERE fc.comment_id = c.id)
+            """)).fetchall()]
+
+            if orphan_ids:
+                keep = update_pins(session, orphan_ids)
+
+                deletable = [i for i in orphan_ids if i not in keep]
+
+                # Pinned comments stay in the raw table, so they are never
+                # merged here. The 'all' queries read rollups PLUS live rows,
+                # so each comment is still counted exactly once.
+                merge_comment_rollups(session, deletable)
+
+                if deletable:
+                    session.query(models.Comment).filter(
+                        models.Comment.id.in_(deletable)).delete(
+                        synchronize_session=False)
+
+            session.query(models.Feed).filter(
+                models.Feed.id == feed_id).update(
+                {'rolled_up': True}, synchronize_session=False)
+
+            session.commit()
+
+            pruned += 1
+        except Exception:
+            session.rollback()
+
+            raise
+        finally:
+            session.close()
+
+    return pruned

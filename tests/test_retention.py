@@ -1,3 +1,5 @@
+from unittest import mock
+
 from sqlalchemy import func, text
 
 from hacker_news import hacker_news, models, retention
@@ -259,3 +261,123 @@ class UpdatePinsTest(HackerNewsTestCase):
             self.assertEqual(retention.update_pins(session, []), set())
         finally:
             session.close()
+
+
+class PruneAgedFeedsTest(HackerNewsTestCase):
+    def test_prunes_only_feeds_outside_the_window(self):
+        session = models.Session()
+
+        try:
+            # Fixture feed 4 is two weeks old; feed 3 is five days old
+            self.assertEqual(retention.prune_aged_feeds(), 1)
+
+            session.expire_all()
+
+            self.assertTrue(session.get(models.Feed, 4).rolled_up)
+            self.assertFalse(session.get(models.Feed, 3).rolled_up)
+
+            self.assertEqual(session.query(models.FeedComment).filter(
+                models.FeedComment.feed_id == 4).count(), 0)
+            self.assertTrue(session.query(models.FeedComment).filter(
+                models.FeedComment.feed_id == 3).count() > 0)
+
+            # Posts and feeds themselves are never deleted
+            self.assertIsNotNone(session.get(models.Post, 6))
+            self.assertIsNotNone(session.get(models.Feed, 4))
+        finally:
+            session.close()
+
+    def test_is_exactly_once(self):
+        session = models.Session()
+
+        try:
+            retention.prune_aged_feeds()
+
+            session.expire_all()
+            first = session.get(models.FeedSummary, 4).sum_point_count
+
+            self.assertEqual(retention.prune_aged_feeds(), 0)
+
+            session.expire_all()
+            second = session.get(models.FeedSummary, 4).sum_point_count
+
+            self.assertEqual(first, second)
+        finally:
+            session.close()
+
+    def test_keeps_comment_still_linked_to_an_in_window_feed(self):
+        session = models.Session()
+
+        try:
+            # Comment 8 now appears in aged feed 4 AND in-window feed 3, the
+            # way a comment that sits on the front page for over a week does
+            session.add(models.FeedComment(comment_id=8, feed_id=3,
+                feed_rank=1))
+            session.commit()
+
+            retention.prune_aged_feeds()
+            session.expire_all()
+
+            self.assertIsNotNone(session.get(models.Comment, 8))
+
+            # And it must NOT be rolled up yet, or it double-counts when its
+            # last link finally disappears
+            self.assertEqual(session.query(models.UserTotal).count(), 0)
+            self.assertEqual(session.query(models.CommentDailyTotal).count(), 0)
+        finally:
+            session.close()
+
+    def test_rolls_up_comment_when_its_last_link_goes(self):
+        session = models.Session()
+
+        try:
+            base = session.get(models.Comment, 8)
+
+            # An ordinary comment is only deleted if it is not a record
+            # holder, so give it competition: one much longer comment and one
+            # much deeper one. MAX_RESULT_COUNT is pinned to 1 so exactly one
+            # word-count record is held rather than the usual hundred.
+            for cid, level, words in ((910, 0, 999), (911, 99, 1), (912, 0, 2)):
+                session.add(models.Comment(id=cid, content='c%d' % cid,
+                    created=base.created, level=level, parent_comment=None,
+                    post_id=base.post_id, total_word_count=words,
+                    username='someone', word_counts=func.to_tsvector(
+                        'simple_english', 'c%d' % cid)))
+
+            session.commit()
+
+            with mock.patch.object(hacker_news, 'MAX_RESULT_COUNT', 1):
+                retention.prune_aged_feeds()
+
+            session.expire_all()
+
+            # 910 is pinned as longest, 911 as deepest, 912 is neither
+            self.assertIsNotNone(session.get(models.Comment, 910))
+            self.assertIsNotNone(session.get(models.Comment, 911))
+            self.assertIsNone(session.get(models.Comment, 912))
+
+            # and the deleted one was counted on its way out
+            self.assertEqual(session.query(models.CommentDailyTotal).count(), 1)
+            self.assertTrue(session.query(models.UserTotal).count() > 0)
+        finally:
+            session.close()
+
+    def test_failure_mid_prune_leaves_no_partial_state(self):
+        with mock.patch.object(retention, 'merge_comment_rollups',
+                side_effect=RuntimeError('boom')):
+            with self.assertRaises(RuntimeError):
+                retention.prune_aged_feeds()
+
+        session = models.Session()
+
+        try:
+            # Nothing committed: feed unmarked, raw rows intact, no rollups
+            self.assertFalse(session.get(models.Feed, 4).rolled_up)
+            self.assertTrue(session.query(models.FeedPost).filter(
+                models.FeedPost.feed_id == 4).count() > 0)
+            self.assertEqual(session.query(models.FeedSummary).count(), 0)
+        finally:
+            session.close()
+
+        # And a clean re-run completes it
+        self.assertEqual(retention.prune_aged_feeds(), 1)
