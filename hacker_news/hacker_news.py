@@ -269,14 +269,17 @@ async def scrape_post(post_id, feed_id, loop, page_number):
 
         # Get core comment data if it is not in database already
         if not comment_exists:
-            # If comment has content span, get text from span
-            if comment_row.find('div', 'comment').find_all('span'):
-                comment_content = comment_row.find(
-                    'div', 'comment').find_all('span')[0].get_text()
+            # Hacker News wraps comment text in an element carrying the
+            # 'commtext' class. Match on the class rather than the tag: it was
+            # a <span> historically and is a <div> now, and matching the tag
+            # meant every comment fell through to the flagged branch below.
+            comment_text = comment_row.find(
+                'div', 'comment').find(class_='commtext')
 
-                # Remove the last word ('reply') from the comment content
-                # and strip trailing whitespace
-                comment_content = comment_content.rsplit(' ', 1)[0].strip()
+            if comment_text:
+                # The reply link is a sibling of this element, not part of it,
+                # so the text needs no trailing-word surgery
+                comment_content = comment_text.get_text().strip()
 
                 total_word_count = len(comment_content.split())
 
