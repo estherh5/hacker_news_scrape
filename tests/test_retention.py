@@ -381,3 +381,23 @@ class PruneAgedFeedsTest(HackerNewsTestCase):
 
         # And a clean re-run completes it
         self.assertEqual(retention.prune_aged_feeds(), 1)
+
+
+class AverageEndpointsAcrossPruneTest(HackerNewsTestCase):
+    ENDPOINTS = (
+        'average_comment_count',
+        'average_point_count',
+        'average_comment_word_count',
+        'average_comment_tree_depth',
+    )
+
+    def test_all_averages_unchanged_by_pruning(self):
+        urls = ['/api/hacker_news/stats/all/%s' % e for e in self.ENDPOINTS]
+        before = {u: self.client.get(u).get_data(as_text=True) for u in urls}
+
+        retention.prune_aged_feeds()
+
+        changed = [u for u in urls
+                   if self.client.get(u).get_data(as_text=True) != before[u]]
+
+        self.assertEqual(changed, [], 'changed across the prune boundary')

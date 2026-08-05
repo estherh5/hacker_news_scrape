@@ -451,6 +451,33 @@ def get_feeds(time_period):
         session.close()
 
 
+def all_period_average(session, rollup_table, rollup_sum, rollup_count,
+        live_table, live_column):
+    """Average over all history: pruned rows from a rollup, the rest live.
+
+    The two halves never overlap. A row is counted in the rollup only once it
+    has been deleted from the live table, so adding them is exact rather than
+    approximate.
+
+    Returns a Decimal, so the caller's round() keeps the banker's rounding the
+    plain func.avg() version used. Rounding in SQL instead would switch to
+    half-up and shift results on exact .5 values.
+    """
+    row = session.execute(
+        text("""
+            SELECT (COALESCE((SELECT sum({rollup_sum}) FROM {rollup}), 0)
+                    + COALESCE((SELECT sum({live_column}) FROM {live}), 0)
+                   )::numeric
+                   / NULLIF(COALESCE((SELECT sum({rollup_count})
+                                        FROM {rollup}), 0)
+                            + (SELECT count(*) FROM {live}), 0) AS average
+        """.format(rollup=rollup_table, rollup_sum=rollup_sum,
+            rollup_count=rollup_count, live=live_table,
+            live_column=live_column))).one()
+
+    return row.average if row.average is not None else 0
+
+
 def get_average_comment_count(feed_ids):
     # Connect to database
     session = models.Session()
@@ -462,8 +489,9 @@ def get_average_comment_count(feed_ids):
             models.FeedPost.feed_id.in_(feed_ids)).one()[0])
 
     else:
-        average = round(session.query(
-            func.avg(models.FeedPost.comment_count)).one()[0])
+        average = round(all_period_average(session,
+            'feed_summary', 'sum_comment_count', 'post_row_count',
+            'feed_post', 'comment_count'))
 
     session.close()
 
@@ -481,7 +509,9 @@ def get_average_comment_tree_depth(feed_ids):
             models.FeedComment.feed_id.in_(feed_ids)).one()[0])
 
     else:
-        average = round(session.query(func.avg(models.Comment.level)).one()[0])
+        average = round(all_period_average(session,
+            'comment_daily_total', 'sum_level', 'comment_count',
+            'comment', 'level'))
 
     session.close()
 
@@ -499,8 +529,9 @@ def get_average_comment_word_count(feed_ids):
             models.FeedComment.feed_id.in_(feed_ids)).one()[0])
 
     else:
-        average = round(session.query(func.avg(
-            models.Comment.total_word_count)).one()[0])
+        average = round(all_period_average(session,
+            'comment_daily_total', 'sum_word_count', 'comment_count',
+            'comment', 'total_word_count'))
 
     session.close()
 
@@ -518,8 +549,9 @@ def get_average_point_count(feed_ids):
             models.FeedPost.feed_id.in_(feed_ids)).one()[0])
 
     else:
-        average = round(session.query(func.avg(
-            models.FeedPost.point_count)).one()[0])
+        average = round(all_period_average(session,
+            'feed_summary', 'sum_point_count', 'post_row_count',
+            'feed_post', 'point_count'))
 
     session.close()
 
