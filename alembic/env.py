@@ -20,8 +20,11 @@ fileConfig(config.config_file_name)
 # for 'autogenerate' support
 target_metadata = models.Base.metadata
 
-# set database URL with environment variable
-config.set_main_option('sqlalchemy.url', os.environ['DB_CONNECTION'])
+# set database URL with environment variable; Heroku hands out postgres://
+# URLs, which SQLAlchemy 2.0 no longer accepts
+config.set_main_option(
+    'sqlalchemy.url',
+    models.normalize_database_url(os.environ['DB_CONNECTION']))
 
 
 def run_migrations_offline():

@@ -32,7 +32,6 @@ class Feed(Base):
     id = Column(Integer, primary_key=True, nullable=False)
     created = Column(TIMESTAMP(timezone=False), default=datetime.utcnow,
         nullable=False)
-    __table_args__ = (Index('feed_id_index', 'id'), )
 
 
 class Post(Base):
@@ -63,8 +62,6 @@ class Comment(Base):
     total_word_count = Column(Integer, default=0, nullable=False)
     username = Column(TEXT, nullable=False)
     word_counts = Column(TSVECTOR, nullable=False)
-    __table_args__ = (Index('comment_index', 'id', 'level', 'parent_comment',
-        'post_id', 'total_word_count', 'username'), )
 
     post = relationship("Post", back_populates='comments')
 
@@ -99,8 +96,6 @@ class FeedComment(Base):
     feed_id = Column(Integer, ForeignKey('feed.id', ondelete='CASCADE'),
         primary_key=True, nullable=False)
     feed_rank = Column(Integer, nullable=False)
-    __table_args__ = (Index('feed_comment_index', 'comment_id', 'feed_id',
-        'feed_rank'), )
 
     comment = relationship("Comment", back_populates='feeds')
 
