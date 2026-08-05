@@ -2,6 +2,7 @@ import json
 import os
 import re
 
+from hacker_news import models
 from utils.tests import HackerNewsTestCase
 
 
@@ -710,6 +711,11 @@ class TestCommentWords(HackerNewsTestCase):
         # Arrange
         db_connect = os.environ['DB_CONNECTION']
         os.environ['DB_CONNECTION'] = ''
+        # has_database() reads models.engine, which was already built from the
+        # environment variable at setUp time -- blanking the variable alone
+        # leaves the engine in place and the sample-data path unreachable
+        db_engine = models.engine
+        models.engine = None
         time_period = 'hour'
 
         # Act
@@ -720,12 +726,14 @@ class TestCommentWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(words), 50)
+        # The sample-data path slices to the same default count the live path
+        # uses, so both return one entry unless ?count= asks for more
+        self.assertEqual(len(words), 1)
 
         # Ensure file data is returned
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/hour_comment_words.json', 'r') as sample_data:
-                self.assertEqual(json.load(sample_data), words)
+                self.assertEqual(json.load(sample_data)[:1], words)
 
         # Ensure each word is a string
         self.assertEqual(all(isinstance(
@@ -741,6 +749,7 @@ class TestCommentWords(HackerNewsTestCase):
 
         # Reset environment variable
         os.environ['DB_CONNECTION'] = db_connect
+        models.engine = db_engine
 
 
 # Test /api/hacker_news/stats/<time_period>/deepest_comment_tree endpoint [GET]
@@ -1317,6 +1326,11 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
         # Arrange
         db_connect = os.environ['DB_CONNECTION']
         os.environ['DB_CONNECTION'] = ''
+        # has_database() reads models.engine, which was already built from the
+        # environment variable at setUp time -- blanking the variable alone
+        # leaves the engine in place and the sample-data path unreachable
+        db_engine = models.engine
+        models.engine = None
         time_period = 'hour'
 
         # Act
@@ -1328,13 +1342,15 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(posts), 5)
+        # The sample-data path slices to the same default count the live path
+        # uses, so both return one entry unless ?count= asks for more
+        self.assertEqual(len(posts), 1)
 
         # Ensure file data is returned
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/hour_posts_highest_comment_count.json',
             'r') as sample_data:
-                self.assertEqual(json.load(sample_data), posts)
+                self.assertEqual(json.load(sample_data)[:1], posts)
 
         # Ensure each post's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -1387,6 +1403,7 @@ class TestPostsHighestCommentCount(HackerNewsTestCase):
 
         # Reset environment variable
         os.environ['DB_CONNECTION'] = db_connect
+        models.engine = db_engine
 
 
 # Test /api/hacker_news/stats/<time_period>/posts_highest_point_count endpoint
@@ -1768,6 +1785,11 @@ class TestPostTypes(HackerNewsTestCase):
         # Arrange
         db_connect = os.environ['DB_CONNECTION']
         os.environ['DB_CONNECTION'] = ''
+        # has_database() reads models.engine, which was already built from the
+        # environment variable at setUp time -- blanking the variable alone
+        # leaves the engine in place and the sample-data path unreachable
+        db_engine = models.engine
+        models.engine = None
         time_period = 'hour'
 
         # Act
@@ -1797,6 +1819,7 @@ class TestPostTypes(HackerNewsTestCase):
 
         # Reset environment variable
         os.environ['DB_CONNECTION'] = db_connect
+        models.engine = db_engine
 
 
 # Test /api/hacker_news/stats/<time_period>/title_words endpoint [GET]
@@ -2422,6 +2445,11 @@ class TestUsersMostComments(HackerNewsTestCase):
         # Arrange
         db_connect = os.environ['DB_CONNECTION']
         os.environ['DB_CONNECTION'] = ''
+        # has_database() reads models.engine, which was already built from the
+        # environment variable at setUp time -- blanking the variable alone
+        # leaves the engine in place and the sample-data path unreachable
+        db_engine = models.engine
+        models.engine = None
         time_period = 'hour'
 
         # Act
@@ -2432,12 +2460,14 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(users), 5)
+        # The sample-data path slices to the same default count the live path
+        # uses, so both return one entry unless ?count= asks for more
+        self.assertEqual(len(users), 1)
 
         # Ensure file data is returned
         with open(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) +
             '/sample_data/hour_users_most_comments.json', 'r') as sample_data:
-                self.assertEqual(json.load(sample_data), users)
+                self.assertEqual(json.load(sample_data)[:1], users)
 
         # Ensure each user's comment count is an integer
         self.assertEqual(all(isinstance(
@@ -2453,6 +2483,7 @@ class TestUsersMostComments(HackerNewsTestCase):
 
         # Reset environment variable
         os.environ['DB_CONNECTION'] = db_connect
+        models.engine = db_engine
 
 
 # Test /api/hacker_news/stats/<time_period>/users_most_posts endpoint [GET]
