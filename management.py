@@ -10,7 +10,7 @@ from crontab import CronTab
 from datetime import datetime
 from sqlalchemy import text
 
-from hacker_news import hacker_news, models
+from hacker_news import hacker_news, models, retention
 
 
 def initialize_database():
@@ -164,6 +164,7 @@ def main():
             'scrape_hn',
             'backup_db',
             'sched_backup',
+            'prune_db',
         ],
         help='management action to run',
     )
@@ -179,6 +180,10 @@ def main():
         backup_database()
     elif args.action == 'sched_backup':
         schedule_weekly_backup()
+    elif args.action == 'prune_db':
+        pruned = retention.prune_aged_feeds()
+        print('Pruned ' + str(pruned) + ' feed(s) older than ' +
+            str(retention.RETENTION_DAYS) + ' days.')
 
 
 if __name__ == '__main__':
