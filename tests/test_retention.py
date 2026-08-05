@@ -596,3 +596,35 @@ class PruneDataLossTest(HackerNewsTestCase):
         # so a correctly retired chain is at most a single row.
         self.assertLessEqual(tree_pins, 1,
             'deepest-tree pins accumulated once per pruned feed')
+
+
+class SessionLifecycleTest(HackerNewsTestCase):
+    """The all-period helpers must close the session they are handed.
+
+    The rewrites returned jsonify(helper(session, ...)) directly, where the
+    original went through serialize_query, which closes in a finally. The
+    leaked sessions sat idle in transaction holding locks on the comment
+    table -- enough to block a VACUUM FULL on production for ten minutes,
+    which queues every subsequent reader behind it.
+
+    Asserted on the helpers rather than through the endpoints: in-process the
+    leaked session is often garbage collected before a pg_stat_activity check
+    runs, so the endpoint-level version passed even with the leak restored.
+    """
+
+    def test_terminal_helpers_close_their_session(self):
+        cases = (
+            ('all_period_users', ('comment_count', 5)),
+            ('all_period_users', ('word_count', 5)),
+            ('all_period_posts', ('comment_count DESC', 5)),
+            ('all_period_posts', ('point_count DESC', 5)),
+            ('all_period_posts', ('feed_rank, point_count DESC', 5)),
+        )
+
+        for name, args in cases:
+            session = models.Session()
+
+            getattr(hacker_news, name)(session, *args)
+
+            self.assertFalse(session.in_transaction(),
+                '%s%r left its session in a transaction' % (name, args))

@@ -488,24 +488,27 @@ def all_period_users(session, order_column, count):
     and the two never overlap -- a comment reaches user_total only as it is
     deleted. Summing the union is therefore exact.
     """
-    rows = session.execute(
-        text("""
-            SELECT username,
-                   SUM(comment_count)::int AS comment_count,
-                   SUM(word_count)::int AS word_count
-              FROM (SELECT username, comment_count, word_count
-                      FROM user_total
-                     UNION ALL
-                    SELECT username, 1, total_word_count
-                      FROM comment
-                     WHERE username != ''
-                   ) merged
-          GROUP BY username
-          ORDER BY SUM({order}) DESC
-             LIMIT :count
-        """.format(order=order_column)), {'count': count}).fetchall()
+    try:
+        rows = session.execute(
+            text("""
+                SELECT username,
+                       SUM(comment_count)::int AS comment_count,
+                       SUM(word_count)::int AS word_count
+                  FROM (SELECT username, comment_count, word_count
+                          FROM user_total
+                         UNION ALL
+                        SELECT username, 1, total_word_count
+                          FROM comment
+                         WHERE username != ''
+                       ) merged
+              GROUP BY username
+              ORDER BY SUM({order}) DESC
+                 LIMIT :count
+            """.format(order=order_column)), {'count': count}).fetchall()
 
-    return [dict(row._mapping) for row in rows]
+        return [dict(row._mapping) for row in rows]
+    finally:
+        session.close()
 
 
 def all_period_posts(session, order_sql, count):
@@ -528,8 +531,9 @@ def all_period_posts(session, order_sql, count):
     # comparison rather than win it
     worst_rank = 2147483647
 
-    rows = session.execute(
-        text("""
+    try:
+        rows = session.execute(
+            text("""
             SELECT p.created, p.id, p.link, p.title, p.type, p.username,
                    p.website,
                    GREATEST(COALESCE(ps.max_comment_count, 0),
@@ -554,7 +558,9 @@ def all_period_posts(session, order_sql, count):
         """.format(order=order_sql)),
         {'count': count, 'worst': worst_rank}).fetchall()
 
-    return [dict(row._mapping) for row in rows]
+        return [dict(row._mapping) for row in rows]
+    finally:
+        session.close()
 
 
 def all_period_average(session, rollup_table, rollup_sum, rollup_count,
