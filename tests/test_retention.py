@@ -401,3 +401,105 @@ class AverageEndpointsAcrossPruneTest(HackerNewsTestCase):
                    if self.client.get(u).get_data(as_text=True) != before[u]]
 
         self.assertEqual(changed, [], 'changed across the prune boundary')
+
+
+class GoldenEquivalenceTest(HackerNewsTestCase):
+    """The primary gate: every stats endpoint, every period, byte-identical
+    across the prune boundary."""
+
+    ENDPOINTS = (
+        'average_comment_count', 'average_comment_tree_depth',
+        'average_comment_word_count', 'average_point_count',
+        'comment_words', 'comments_highest_word_count',
+        'deepest_comment_tree', 'post_types',
+        'posts_highest_comment_count', 'posts_highest_point_count',
+        'title_words', 'top_posts', 'top_websites',
+        'users_most_comments', 'users_most_posts', 'users_most_words',
+    )
+
+    def _capture(self, urls):
+        return {u: self.client.get(u).get_data(as_text=True) for u in urls}
+
+    def _seed_prunable_comments(self):
+        """Attach enough comments to the aged feed that some are really
+        deleted.
+
+        Without this the gate is hollow: the fixture has one aged comment,
+        which update_pins correctly keeps as the all-time record holder, so
+        nothing is deleted and the rollup read paths are never exercised.
+
+        Seeded past MAX_RESULT_COUNT on purpose. Lowering that cap instead
+        would delete more comments but would also stop
+        comments_highest_word_count from having enough pinned rows to answer,
+        producing a failure that says nothing about the rollups.
+        """
+        session = models.Session()
+
+        try:
+            base = session.get(models.Comment, 8)
+            extra = hacker_news.MAX_RESULT_COUNT + 10
+
+            for i in range(extra):
+                cid = 1000 + i
+
+                session.add(models.Comment(id=cid, content='seeded %d' % i,
+                    created=base.created, level=i % 5, parent_comment=None,
+                    post_id=base.post_id, total_word_count=i + 1,
+                    username='user%d' % (i % 7),
+                    word_counts=func.to_tsvector('simple_english',
+                        'seeded alpha%d beta' % i)))
+
+                session.add(models.FeedComment(comment_id=cid, feed_id=4,
+                    feed_rank=(i % 30) + 1))
+
+            session.commit()
+        finally:
+            session.close()
+
+    def test_all_sixteen_endpoints_survive_pruning(self):
+        self._seed_prunable_comments()
+
+        urls = ['/api/hacker_news/stats/all/%s' % e for e in self.ENDPOINTS]
+        before = self._capture(urls)
+
+        session = models.Session()
+
+        try:
+            before_comments = session.query(models.Comment).count()
+        finally:
+            session.close()
+
+        retention.prune_aged_feeds()
+
+        session = models.Session()
+
+        try:
+            after_comments = session.query(models.Comment).count()
+            rolled = session.query(models.CommentDailyTotal).count()
+        finally:
+            session.close()
+
+        # Guard the guard: if nothing was deleted and rolled up, the
+        # comparison below proves nothing
+        self.assertTrue(rolled > 0, 'no comments were rolled up')
+        self.assertTrue(after_comments < before_comments,
+            'no comments were deleted, so the rollup paths were not exercised')
+
+        after = self._capture(urls)
+        changed = [u.rsplit('/', 1)[1] for u in urls if after[u] != before[u]]
+
+        self.assertEqual(changed, [], 'changed across prune: %s' % changed)
+
+    def test_windowed_periods_are_untouched(self):
+        self._seed_prunable_comments()
+
+        urls = ['/api/hacker_news/stats/%s/%s' % (p, e)
+                for p in ('hour', 'day', 'week') for e in self.ENDPOINTS]
+        before = self._capture(urls)
+
+        retention.prune_aged_feeds()
+
+        after = self._capture(urls)
+        changed = [u for u in urls if after[u] != before[u]]
+
+        self.assertEqual(changed, [], 'changed across prune: %s' % changed)

@@ -451,6 +451,112 @@ def get_feeds(time_period):
         session.close()
 
 
+def all_period_post(session, post_id):
+    """One post's details plus its best per-feed numbers over all history.
+
+    Deliberately omits website: the deepest-tree endpoint never returned it.
+    """
+    worst_rank = 2147483647
+
+    row = session.execute(
+        text("""
+            SELECT p.created, p.id, p.link, p.title, p.type, p.username,
+                   GREATEST(COALESCE(ps.max_comment_count, 0),
+                            COALESCE(MAX(fp.comment_count), 0)
+                           ) AS comment_count,
+                   LEAST(COALESCE(ps.best_feed_rank, :worst),
+                         COALESCE(MIN(fp.feed_rank), :worst)
+                        ) AS feed_rank,
+                   GREATEST(COALESCE(ps.max_point_count, 0),
+                            COALESCE(MAX(fp.point_count), 0)
+                           ) AS point_count
+              FROM post p
+                   LEFT JOIN post_stat ps ON ps.post_id = p.id
+                   LEFT JOIN feed_post fp ON fp.post_id = p.id
+             WHERE p.id = :post_id
+          GROUP BY p.id, ps.max_comment_count, ps.max_point_count,
+                   ps.best_feed_rank
+        """), {'post_id': post_id, 'worst': worst_rank}).one()
+
+    return dict(row._mapping)
+
+
+def all_period_users(session, order_column, count):
+    """Per-user comment totals over all history.
+
+    user_total holds deleted comments, the live comment table holds the rest,
+    and the two never overlap -- a comment reaches user_total only as it is
+    deleted. Summing the union is therefore exact.
+    """
+    rows = session.execute(
+        text("""
+            SELECT username,
+                   SUM(comment_count)::int AS comment_count,
+                   SUM(word_count)::int AS word_count
+              FROM (SELECT username, comment_count, word_count
+                      FROM user_total
+                     UNION ALL
+                    SELECT username, 1, total_word_count
+                      FROM comment
+                     WHERE username != ''
+                   ) merged
+          GROUP BY username
+          ORDER BY SUM({order}) DESC
+             LIMIT :count
+        """.format(order=order_column)), {'count': count}).fetchall()
+
+    return [dict(row._mapping) for row in rows]
+
+
+def all_period_posts(session, order_column, count):
+    """Ranked posts over all history.
+
+    Posts are never pruned, so titles and links always come from the live
+    post table. Their per-feed numbers come from post_stat for pruned feeds
+    and from the surviving feed_post rows for the rest, taking the better
+    value of the two.
+
+    One deliberate difference from the pre-rollup query: that one picked the
+    single feed_post row with the highest count and reported that row's rank
+    alongside it. post_stat keeps per-column extremes instead, so feed_rank is
+    the best rank the post ever reached rather than its rank at peak comment
+    count. For a post that climbed and then accumulated comments those are
+    different rows. Best-ever rank is the more useful of the two, and it is
+    what top_posts already wants.
+    """
+    # Rank 1 is the top of the front page, so a missing rank must lose every
+    # comparison rather than win it
+    worst_rank = 2147483647
+
+    rows = session.execute(
+        text("""
+            SELECT p.created, p.id, p.link, p.title, p.type, p.username,
+                   p.website,
+                   GREATEST(COALESCE(ps.max_comment_count, 0),
+                            COALESCE(MAX(fp.comment_count), 0)
+                           ) AS comment_count,
+                   GREATEST(COALESCE(ps.max_point_count, 0),
+                            COALESCE(MAX(fp.point_count), 0)
+                           ) AS point_count,
+                   LEAST(COALESCE(ps.best_feed_rank, :worst),
+                         COALESCE(MIN(fp.feed_rank), :worst)
+                        ) AS feed_rank
+              FROM post p
+                   LEFT JOIN post_stat ps ON ps.post_id = p.id
+                   LEFT JOIN feed_post fp ON fp.post_id = p.id
+          GROUP BY p.id, ps.post_id, ps.max_comment_count, ps.max_point_count,
+                   ps.best_feed_rank
+            -- The pre-rollup query inner-joined feed_post, so a post that
+            -- never appeared in a feed was excluded. Keep that.
+            HAVING ps.post_id IS NOT NULL OR COUNT(fp.post_id) > 0
+          ORDER BY {order} DESC
+             LIMIT :count
+        """.format(order=order_column)),
+        {'count': count, 'worst': worst_rank}).fetchall()
+
+    return [dict(row._mapping) for row in rows]
+
+
 def all_period_average(session, rollup_table, rollup_sum, rollup_count,
         live_table, live_column):
     """Average over all history: pruned rows from a rollup, the rest live.
@@ -633,19 +739,22 @@ def get_most_frequent_comment_words(feed_ids):
             ).fetchall()
 
     else:
+        # word_total holds the words of deleted comments, ts_stat covers the
+        # ones still live. A comment is in exactly one of the two, never both.
         query = session.execute(
             text("""
-              SELECT *
-                FROM ts_stat(
-                     $$SELECT word_counts
-                         FROM comment$$
-                )
+              SELECT word, SUM(ndoc)::int AS ndoc, SUM(nentry)::int AS nentry
+                FROM (SELECT word, ndoc, nentry FROM word_total
+                       UNION ALL
+                      SELECT word, ndoc, nentry
+                        FROM ts_stat($$SELECT word_counts FROM comment$$)
+                     ) merged
                WHERE LENGTH (word) > 1
-            ORDER BY nentry DESC
+            GROUP BY word
+            ORDER BY SUM(nentry) DESC
                LIMIT :count;
             """),
-            {'feed_id': feed_ids,
-            'count': count}
+            {'count': count}
             ).fetchall()
 
     session.close()
@@ -694,14 +803,10 @@ def get_deepest_comment_tree(feed_ids):
             models.Comment.post_id, models.Comment.username).order_by(
             models.Comment.level.desc()).limit(1).one()._asdict()
 
-        # Get post information
-        post = session.query(models.Post).with_entities(models.Post.created,
-            models.Post.id, models.Post.link, models.Post.title,
-            models.Post.type, models.Post.username,
-            models.FeedPost.comment_count, models.FeedPost.feed_rank,
-            models.FeedPost.point_count).join(models.FeedPost).filter(
-            models.Post.id == comment['post_id']).order_by(
-            models.FeedPost.feed_id.desc()).limit(1).one()._asdict()
+        # Get post information. The pre-rollup query read the most recent
+        # feed_post row for this post; those rows are pruned, so the numbers
+        # come from post_stat and any surviving rows instead.
+        post = all_period_post(session, comment['post_id'])
 
     comment.pop('post_id')
     comment.pop('level')
@@ -760,17 +865,7 @@ def get_posts_with_highest_comment_counts(feed_ids):
             subquery.columns.get('comment_count').desc()).limit(count)
 
     else:
-        subquery = session.query(models.Post).with_entities(
-            models.Post.created, models.Post.id, models.Post.link,
-            models.Post.title, models.Post.type, models.Post.username,
-            models.Post.website, models.FeedPost.comment_count,
-            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
-            models.FeedPost).order_by(
-            models.Post.id, models.FeedPost.comment_count.desc()).distinct(
-            models.Post.id).subquery()
-
-        query = session.query(subquery).order_by(
-            subquery.columns.get('comment_count').desc()).limit(count)
+        return jsonify(all_period_posts(session, 'comment_count', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -799,17 +894,7 @@ def get_posts_with_highest_point_counts(feed_ids):
             subquery.columns.get('point_count').desc()).limit(count)
 
     else:
-        subquery = session.query(models.Post).with_entities(
-            models.Post.created, models.Post.id, models.Post.link,
-            models.Post.title, models.Post.type, models.Post.username,
-            models.Post.website, models.FeedPost.comment_count,
-            models.FeedPost.feed_rank, models.FeedPost.point_count).join(
-            models.FeedPost).order_by(
-            models.Post.id, models.FeedPost.point_count.desc()).distinct(
-            models.Post.id).subquery()
-
-        query = session.query(subquery).order_by(
-            subquery.columns.get('point_count').desc()).limit(count)
+        return jsonify(all_period_posts(session, 'point_count', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -1029,18 +1114,7 @@ def get_users_with_most_comments(feed_ids):
             desc('comment_count')).limit(count)
 
     else:
-        subquery = session.query(models.Comment).with_entities(
-            models.Comment.id, models.Comment.total_word_count,
-            models.Comment.username).filter(
-            models.Comment.username != '').subquery()
-
-        query = session.query(subquery).with_entities(
-            subquery.columns.get('username'),
-            func.count('*').label("comment_count"), func.sum(
-                subquery.columns.get('total_word_count')
-            ).label("word_count")).group_by(
-            subquery.columns.get('username')).order_by(
-            desc('comment_count')).limit(count)
+        return jsonify(all_period_users(session, 'comment_count', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -1109,17 +1183,6 @@ def get_users_with_most_words_in_comments(feed_ids):
             desc('word_count')).limit(count)
 
     else:
-        subquery = session.query(models.Comment).with_entities(
-            models.Comment.id, models.Comment.total_word_count,
-            models.Comment.username).filter(
-            models.Comment.username != '').subquery()
-
-        query = session.query(subquery).with_entities(
-            subquery.columns.get('username'),
-            func.count('*').label("comment_count"), func.sum(
-                subquery.columns.get('total_word_count')
-            ).label("word_count")).group_by(
-            subquery.columns.get('username')).order_by(
-            desc('word_count')).limit(count)
+        return jsonify(all_period_users(session, 'word_count', count))
 
     return jsonify(serialize_query(query, session))
