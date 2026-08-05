@@ -344,6 +344,12 @@ class PruneAgedFeedsTest(HackerNewsTestCase):
                     username='someone', word_counts=func.to_tsvector(
                         'simple_english', 'c%d' % cid)))
 
+                # Link them to the aged feed. Pruning only considers comments
+                # the pruned feed referenced, which is what a real comment
+                # always looks like.
+                session.add(models.FeedComment(comment_id=cid, feed_id=4,
+                    feed_rank=1))
+
             session.commit()
 
             with mock.patch.object(hacker_news, 'MAX_RESULT_COUNT', 1):

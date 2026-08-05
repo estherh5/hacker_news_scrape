@@ -268,6 +268,15 @@ def prune_aged_feeds(now=None):
         try:
             merge_feed_rollups(session, feed_id)
 
+            # Only comments this feed linked to can be orphaned by deleting
+            # its links, so collect them first and check just those. Scanning
+            # the whole comment table per feed would be the same answer at
+            # roughly a thousand times the cost across a full backfill.
+            candidate_ids = [row[0] for row in session.execute(
+                text('SELECT comment_id FROM feed_comment '
+                     'WHERE feed_id = :feed_id'),
+                {'feed_id': feed_id}).fetchall()]
+
             session.query(models.FeedPost).filter(
                 models.FeedPost.feed_id == feed_id).delete(
                 synchronize_session=False)
@@ -276,15 +285,18 @@ def prune_aged_feeds(now=None):
                 models.FeedComment.feed_id == feed_id).delete(
                 synchronize_session=False)
 
-            # Comments with no remaining link to ANY feed have fully aged out.
-            # This is what lets a comment that stayed on the front page longer
-            # than the window survive until its last link disappears.
-            orphan_ids = [row[0] for row in session.execute(text("""
-                SELECT c.id
-                  FROM comment c
-                 WHERE NOT EXISTS (SELECT 1 FROM feed_comment fc
-                                    WHERE fc.comment_id = c.id)
-            """)).fetchall()]
+            # Of those, the ones with no remaining link to ANY feed have fully
+            # aged out. This is what lets a comment that stayed on the front
+            # page longer than the window survive until its last link goes.
+            orphan_ids = [row[0] for row in session.execute(
+                text("""
+                    SELECT c.id
+                      FROM comment c
+                     WHERE c.id = ANY(CAST(:ids AS integer[]))
+                       AND NOT EXISTS (SELECT 1 FROM feed_comment fc
+                                        WHERE fc.comment_id = c.id)
+                """), {'ids': candidate_ids}).fetchall()] \
+                if candidate_ids else []
 
             if orphan_ids:
                 keep = update_pins(session, orphan_ids)
