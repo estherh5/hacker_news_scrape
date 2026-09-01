@@ -9,3 +9,7 @@ __pycache__
 /docs/superpowers/
 /tasks/
 /.claude/
+
+# Vercel CLI link metadata -- never commit
+.vercel/
+.vercel
