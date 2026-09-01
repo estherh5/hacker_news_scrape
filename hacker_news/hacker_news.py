@@ -596,9 +596,10 @@ def get_average_comment_count(feed_ids):
 
     # Get average comment count, filtering by feed_ids if specified
     if feed_ids is not None:
-        average = round(session.query(
+        raw_average = session.query(
             func.avg(models.FeedPost.comment_count)).filter(
-            models.FeedPost.feed_id.in_(feed_ids)).one()[0])
+            models.FeedPost.feed_id.in_(feed_ids)).one()[0]
+        average = round(raw_average) if raw_average is not None else 0
 
     else:
         average = round(all_period_average(session,
@@ -616,9 +617,10 @@ def get_average_comment_tree_depth(feed_ids):
 
     # Get average comment level, filtering by feed_ids if specified
     if feed_ids is not None:
-        average = round(session.query(func.avg(models.Comment.level)).join(
+        raw_average = session.query(func.avg(models.Comment.level)).join(
             models.FeedComment).filter(
-            models.FeedComment.feed_id.in_(feed_ids)).one()[0])
+            models.FeedComment.feed_id.in_(feed_ids)).one()[0]
+        average = round(raw_average) if raw_average is not None else 0
 
     else:
         average = round(all_period_average(session,
@@ -636,9 +638,10 @@ def get_average_comment_word_count(feed_ids):
 
     # Get average comment word count, filtering by feed_ids if specified
     if feed_ids is not None:
-        average = round(session.query(func.avg(
+        raw_average = session.query(func.avg(
             models.Comment.total_word_count)).join(models.FeedComment).filter(
-            models.FeedComment.feed_id.in_(feed_ids)).one()[0])
+            models.FeedComment.feed_id.in_(feed_ids)).one()[0]
+        average = round(raw_average) if raw_average is not None else 0
 
     else:
         average = round(all_period_average(session,
@@ -656,9 +659,10 @@ def get_average_point_count(feed_ids):
 
     # Get average post point count, filtering by feed_ids if specified
     if feed_ids is not None:
-        average = round(session.query(func.avg(
+        raw_average = session.query(func.avg(
             models.FeedPost.point_count)).filter(
-            models.FeedPost.feed_id.in_(feed_ids)).one()[0])
+            models.FeedPost.feed_id.in_(feed_ids)).one()[0]
+        average = round(raw_average) if raw_average is not None else 0
 
     else:
         average = round(all_period_average(session,

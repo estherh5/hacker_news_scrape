@@ -2,7 +2,7 @@ import json
 import os
 import re
 
-from hacker_news import models
+from hacker_news import hacker_news, models
 from utils.tests import HackerNewsTestCase
 
 
@@ -344,6 +344,56 @@ class TestAveragePointCount(HackerNewsTestCase):
         # Assert
         self.assertEqual(response.status_code, 200)
         self.assertEqual(isinstance(average, int), True)
+
+
+# The four get_average_* functions call round() directly on a func.avg()
+# result. A feed with no matching feed_post/feed_comment rows makes avg()
+# return SQL NULL -> Python None, which round() cannot handle.
+#
+# Reproduces the live 500: TypeError: type NoneType doesn't define __round__
+class TestAverageReturnsZeroWhenNoRowsMatch(HackerNewsTestCase):
+    def setUp(self):
+        super().setUp()
+
+        session = models.Session()
+
+        # A feed with no feed_post or feed_comment rows attached to it, so
+        # func.avg() filtered to just this feed's id matches zero rows.
+        empty_feed = models.Feed()
+        session.add(empty_feed)
+        session.commit()
+
+        self.empty_feed_ids = [empty_feed.id]
+
+        session.close()
+
+    def test_average_comment_count_returns_zero(self):
+        with self.client.application.app_context():
+            response = hacker_news.get_average_comment_count(
+                self.empty_feed_ids)
+
+        self.assertEqual(response.get_json(), 0)
+
+    def test_average_comment_tree_depth_returns_zero(self):
+        with self.client.application.app_context():
+            response = hacker_news.get_average_comment_tree_depth(
+                self.empty_feed_ids)
+
+        self.assertEqual(response.get_json(), 0)
+
+    def test_average_comment_word_count_returns_zero(self):
+        with self.client.application.app_context():
+            response = hacker_news.get_average_comment_word_count(
+                self.empty_feed_ids)
+
+        self.assertEqual(response.get_json(), 0)
+
+    def test_average_point_count_returns_zero(self):
+        with self.client.application.app_context():
+            response = hacker_news.get_average_point_count(
+                self.empty_feed_ids)
+
+        self.assertEqual(response.get_json(), 0)
 
 
 # Test /api/hacker_news/stats/<time_period>/comments_highest_word_count
