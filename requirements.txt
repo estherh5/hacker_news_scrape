@@ -8,5 +8,3 @@ psycopg2-binary~=2.9
 python-crontab~=3.2
 requests~=2.32
 SQLAlchemy~=2.0
-testing.common.database~=2.0
-testing.postgresql~=1.3
