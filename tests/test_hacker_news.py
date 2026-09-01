@@ -1097,6 +1097,116 @@ class TestDeepestCommentTree(HackerNewsTestCase):
         self.assertEqual(isinstance(post['username'], str), True)
 
 
+# get_deepest_comment_tree ends each of its lookups in .one(), which raises
+# NoResultFound rather than returning None when nothing matches. feed_comment
+# and feed_post are empty in the migrated database, so 'hour', 'day' and
+# 'week' all answered 500 while 'all' -- which reads the comment table
+# directly -- kept working. An empty period must answer 200 with an empty
+# object, the analogue of the 0 the average endpoints return.
+class TestDeepestCommentTreeWithNoFeedComments(HackerNewsTestCase):
+    def setUp(self):
+        super().setUp()
+
+        session = models.Session()
+
+        # Production state: feeds still exist, so get_feeds() returns a
+        # non-empty list of ids, but nothing is linked to them.
+        session.query(models.FeedComment).delete(synchronize_session=False)
+        session.query(models.FeedPost).delete(synchronize_session=False)
+
+        session.commit()
+
+        session.close()
+
+    def get_tree(self, time_period):
+        return self.client.get(
+            '/api/hacker_news/stats/' + time_period + '/deepest_comment_tree'
+            )
+
+    def test_tree_hour_returns_empty_object(self):
+        response = self.get_tree('hour')
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(json.loads(response.get_data(as_text=True)), {})
+
+    def test_tree_day_returns_empty_object(self):
+        response = self.get_tree('day')
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(json.loads(response.get_data(as_text=True)), {})
+
+    def test_tree_week_returns_empty_object(self):
+        response = self.get_tree('week')
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(json.loads(response.get_data(as_text=True)), {})
+
+    def test_tree_all_still_returns_a_tree(self):
+        # The 'all' branch reads the comment table directly, so it must be
+        # unaffected by the fix to the feed-filtered branch.
+        response = self.get_tree('all')
+
+        post = json.loads(response.get_data(as_text=True))
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(isinstance(post['comment_tree'], dict), True)
+
+        self.assertEqual(isinstance(post['id'], int), True)
+
+
+# The post lookup is a second .one(): a comment can match the requested feeds
+# while its post has no feed_post row in any of them, because comments and
+# posts are pruned on separate schedules.
+class TestDeepestCommentTreeWithNoMatchingPost(HackerNewsTestCase):
+    def setUp(self):
+        super().setUp()
+
+        session = models.Session()
+
+        # Comments stay linked to their feeds; only the post links go.
+        session.query(models.FeedPost).delete(synchronize_session=False)
+
+        session.commit()
+
+        session.close()
+
+    def test_tree_hour_returns_empty_object(self):
+        response = self.client.get(
+            '/api/hacker_news/stats/hour/deepest_comment_tree'
+            )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(json.loads(response.get_data(as_text=True)), {})
+
+
+# The 'all' branch has the same failure mode against an empty comment table.
+class TestDeepestCommentTreeWithNoComments(HackerNewsTestCase):
+    def setUp(self):
+        super().setUp()
+
+        session = models.Session()
+
+        session.query(models.Comment).delete(synchronize_session=False)
+
+        session.commit()
+
+        session.close()
+
+    def test_tree_all_returns_empty_object(self):
+        response = self.client.get(
+            '/api/hacker_news/stats/all/deepest_comment_tree'
+            )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(json.loads(response.get_data(as_text=True)), {})
+
+
 # Test /api/hacker_news/stats/<time_period>/posts_highest_comment_count
 # endpoint [GET]
 class TestPostsHighestCommentCount(HackerNewsTestCase):
