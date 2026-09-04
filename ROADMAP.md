@@ -7,6 +7,14 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-09** **Heroku decommissioned.** The `hn-scrape` app, its `essential-0` Postgres add-on
+  and its scheduler were destroyed on 2026-09-04 after three days of parallel running with zero
+  real traffic (the only post-cutover requests were Googlebot and msnbot hitting the raw
+  `hn-scrape.herokuapp.com` hostname). A final pre-destroy dump was taken and row-matched against
+  Neon on every table. Two Heroku scheduler jobs died with the app: `management.py backup_db`
+  (superseded by `~/blob-backups` step 2b) and `management.py prune_db`, which pruned feeds older
+  than 8 days and had been a no-op since scraping stopped in 2024-05.
+
 - **2026-09** **Off Heroku onto Vercel, with the Postgres database on Neon.** The API is served
   from `hn-api.crystalprism.io` on Vercel; the database moved to the Neon project
   `bitter-star-94554507` (PostgreSQL 18) with no SQL rewritten. `hacker_news_stats` points at
