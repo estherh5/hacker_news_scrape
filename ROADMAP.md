@@ -26,6 +26,12 @@ Committed doc, not scratch. Kept current by hand as work ships.
 - **2026-09** **`deepest_comment_tree` no longer 500s on a period with no comments.** It assumed
   at least one row and indexed into an empty result. 125 tests pass, up from 119.
 
+## Next
+
+- [security] **`.format` into `text()` SQL (Low, not injectable).** `hacker_news/hacker_news.py#all_period_users`, `#all_period_average`, `get_posts_*` format constants/allowlisted values (`count` is int-cast and bound). Fix: a dict allowlist to make the invariant local.
+
+- [security] **Public expensive all-history queries, CORS `*` (Low).** `server.py` `/api/hacker_news/*`. Fix: cache or rate limit.
+
 ## Declined
 
 - **`scrape_comments`'s level-1 parent lookup ends `.limit(1).one()` and can legitimately match
