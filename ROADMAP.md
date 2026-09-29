@@ -7,6 +7,9 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-09** **Pushes to `main` deploy.** The Vercel project is now git-connected (production
+  branch `main`); before this, only `vercel --prod` deployed it, and a push produced no build.
+
 - **2026-09** **Heroku decommissioned.** The `hn-scrape` app, its `essential-0` Postgres add-on
   and its scheduler were destroyed on 2026-09-04 after three days of parallel running with zero
   real traffic (the only post-cutover requests were Googlebot and msnbot hitting the raw
