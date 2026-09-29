@@ -7,6 +7,15 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-09** **Security: SQL fragments allowlisted, all-history queries cached at the edge.**
+  `all_period_users`, `all_period_posts` and `all_period_average` now take a key into
+  `USER_ORDERS` / `POST_ORDERS` / `AVERAGES` in `hacker_news/hacker_news.py` instead of raw SQL,
+  so nothing but those dicts is ever formatted into a `text()` query. `server.py#cache_at_edge`
+  marks every 200 GET `s-maxage=86400, stale-while-revalidate=604800` (errors are never cached),
+  so repeat hits on the expensive all-history queries are served from Vercel's CDN; the archive
+  has not changed since scraping stopped in 2024-05. CORS `*` stays: the API is public, read-only
+  and credential-free, so an origin list would stop no one who can run `curl`. 128 tests pass.
+
 - **2026-09** **Pushes to `main` deploy.** The Vercel project is now git-connected (production
   branch `main`); before this, only `vercel --prod` deployed it, and a push produced no build.
   The first git build took the API down for ~5 minutes: `SQLAlchemy~=2.0` resolved to 2.1, whose
@@ -40,11 +49,9 @@ Committed doc, not scratch. Kept current by hand as work ships.
   to the 2026-09-01 build, so auto-assign is OFF: a new build will not take
   `hn-api.crystalprism.io` until promoted. Redeploy HEAD (push, or `vercel --prod --yes`),
   confirm `/api/hacker_news/stats/day/average_point_count` returns 200 on the deployment URL, then
-  `vercel promote <url> --yes`, which also turns auto-assign back on.
-
-- [security] **`.format` into `text()` SQL (Low, not injectable).** `hacker_news/hacker_news.py#all_period_users`, `#all_period_average`, `get_posts_*` format constants/allowlisted values (`count` is int-cast and bound). Fix: a dict allowlist to make the invariant local.
-
-- [security] **Public expensive all-history queries, CORS `*` (Low).** `server.py` `/api/hacker_news/*`. Fix: cache or rate limit.
+  `vercel promote <url> --yes`, which also turns auto-assign back on. The same deploy carries the
+  edge-cache headers: request one endpoint twice and confirm the second answers
+  `x-vercel-cache: HIT`.
 
 ## Declined
 

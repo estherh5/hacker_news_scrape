@@ -16,6 +16,41 @@ from hacker_news import models
 REQUEST_TIMEOUT = 15
 MAX_RESULT_COUNT = 100
 
+# The only SQL ever formatted into a text() query. Callers pass a key, never
+# the SQL itself, so an unknown key is a KeyError rather than a new query.
+USER_ORDERS = {
+    'comment_count': 'comment_count',
+    'word_count': 'word_count',
+}
+POST_ORDERS = {
+    'comment_count': 'comment_count DESC',
+    'point_count': 'point_count DESC',
+    # Ascending: rank 1 is the top of the front page
+    'feed_rank': 'feed_rank, point_count DESC',
+}
+AVERAGES = {
+    'comment_count': {
+        'rollup': 'feed_summary', 'rollup_sum': 'sum_comment_count',
+        'rollup_count': 'post_row_count', 'live': 'feed_post',
+        'live_column': 'comment_count',
+    },
+    'comment_tree_depth': {
+        'rollup': 'comment_daily_total', 'rollup_sum': 'sum_level',
+        'rollup_count': 'comment_count', 'live': 'comment',
+        'live_column': 'level',
+    },
+    'comment_word_count': {
+        'rollup': 'comment_daily_total', 'rollup_sum': 'sum_word_count',
+        'rollup_count': 'comment_count', 'live': 'comment',
+        'live_column': 'total_word_count',
+    },
+    'point_count': {
+        'rollup': 'feed_summary', 'rollup_sum': 'sum_point_count',
+        'rollup_count': 'post_row_count', 'live': 'feed_post',
+        'live_column': 'point_count',
+    },
+}
+
 
 def get_count(default):
     raw_count = request.args.get('count')
@@ -481,7 +516,7 @@ def all_period_post(session, post_id):
     return dict(row._mapping)
 
 
-def all_period_users(session, order_column, count):
+def all_period_users(session, order, count):
     """Per-user comment totals over all history.
 
     user_total holds deleted comments, the live comment table holds the rest,
@@ -504,14 +539,15 @@ def all_period_users(session, order_column, count):
               GROUP BY username
               ORDER BY SUM({order}) DESC
                  LIMIT :count
-            """.format(order=order_column)), {'count': count}).fetchall()
+            """.format(order=USER_ORDERS[order])),
+            {'count': count}).fetchall()
 
         return [dict(row._mapping) for row in rows]
     finally:
         session.close()
 
 
-def all_period_posts(session, order_sql, count):
+def all_period_posts(session, order, count):
     """Ranked posts over all history.
 
     Posts are never pruned, so titles and links always come from the live
@@ -555,7 +591,7 @@ def all_period_posts(session, order_sql, count):
             HAVING ps.post_id IS NOT NULL OR COUNT(fp.post_id) > 0
           ORDER BY {order}
              LIMIT :count
-        """.format(order=order_sql)),
+        """.format(order=POST_ORDERS[order])),
         {'count': count, 'worst': worst_rank}).fetchall()
 
         return [dict(row._mapping) for row in rows]
@@ -563,8 +599,7 @@ def all_period_posts(session, order_sql, count):
         session.close()
 
 
-def all_period_average(session, rollup_table, rollup_sum, rollup_count,
-        live_table, live_column):
+def all_period_average(session, metric):
     """Average over all history: pruned rows from a rollup, the rest live.
 
     The two halves never overlap. A row is counted in the rollup only once it
@@ -583,9 +618,7 @@ def all_period_average(session, rollup_table, rollup_sum, rollup_count,
                    / NULLIF(COALESCE((SELECT sum({rollup_count})
                                         FROM {rollup}), 0)
                             + (SELECT count(*) FROM {live}), 0) AS average
-        """.format(rollup=rollup_table, rollup_sum=rollup_sum,
-            rollup_count=rollup_count, live=live_table,
-            live_column=live_column))).one()
+        """.format(**AVERAGES[metric]))).one()
 
     return row.average if row.average is not None else 0
 
@@ -602,9 +635,7 @@ def get_average_comment_count(feed_ids):
         average = round(raw_average) if raw_average is not None else 0
 
     else:
-        average = round(all_period_average(session,
-            'feed_summary', 'sum_comment_count', 'post_row_count',
-            'feed_post', 'comment_count'))
+        average = round(all_period_average(session, 'comment_count'))
 
     session.close()
 
@@ -623,9 +654,7 @@ def get_average_comment_tree_depth(feed_ids):
         average = round(raw_average) if raw_average is not None else 0
 
     else:
-        average = round(all_period_average(session,
-            'comment_daily_total', 'sum_level', 'comment_count',
-            'comment', 'level'))
+        average = round(all_period_average(session, 'comment_tree_depth'))
 
     session.close()
 
@@ -644,9 +673,7 @@ def get_average_comment_word_count(feed_ids):
         average = round(raw_average) if raw_average is not None else 0
 
     else:
-        average = round(all_period_average(session,
-            'comment_daily_total', 'sum_word_count', 'comment_count',
-            'comment', 'total_word_count'))
+        average = round(all_period_average(session, 'comment_word_count'))
 
     session.close()
 
@@ -665,9 +692,7 @@ def get_average_point_count(feed_ids):
         average = round(raw_average) if raw_average is not None else 0
 
     else:
-        average = round(all_period_average(session,
-            'feed_summary', 'sum_point_count', 'post_row_count',
-            'feed_post', 'point_count'))
+        average = round(all_period_average(session, 'point_count'))
 
     session.close()
 
@@ -909,7 +934,7 @@ def get_posts_with_highest_comment_counts(feed_ids):
             subquery.columns.get('comment_count').desc()).limit(count)
 
     else:
-        return jsonify(all_period_posts(session, 'comment_count DESC', count))
+        return jsonify(all_period_posts(session, 'comment_count', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -938,7 +963,7 @@ def get_posts_with_highest_point_counts(feed_ids):
             subquery.columns.get('point_count').desc()).limit(count)
 
     else:
-        return jsonify(all_period_posts(session, 'point_count DESC', count))
+        return jsonify(all_period_posts(session, 'point_count', count))
 
     return jsonify(serialize_query(query, session))
 
@@ -1069,9 +1094,7 @@ def get_top_posts(feed_ids):
             subquery.columns.get('point_count').desc()).limit(count)
 
     else:
-        # Ascending: rank 1 is the top of the front page
-        return jsonify(all_period_posts(
-            session, 'feed_rank, point_count DESC', count))
+        return jsonify(all_period_posts(session, 'feed_rank', count))
 
     return jsonify(serialize_query(query, session))
 

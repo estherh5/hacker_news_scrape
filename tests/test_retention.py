@@ -616,9 +616,9 @@ class SessionLifecycleTest(HackerNewsTestCase):
         cases = (
             ('all_period_users', ('comment_count', 5)),
             ('all_period_users', ('word_count', 5)),
-            ('all_period_posts', ('comment_count DESC', 5)),
-            ('all_period_posts', ('point_count DESC', 5)),
-            ('all_period_posts', ('feed_rank, point_count DESC', 5)),
+            ('all_period_posts', ('comment_count', 5)),
+            ('all_period_posts', ('point_count', 5)),
+            ('all_period_posts', ('feed_rank', 5)),
         )
 
         for name, args in cases:

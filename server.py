@@ -1,11 +1,14 @@
 import os
 
-from flask import Flask, abort
+from flask import Flask, abort, request
 from flask_cors import CORS
 
 from hacker_news import hacker_news
 
 VALID_TIME_PERIODS = {'hour', 'day', 'week', 'all'}
+CACHE_CONTROL = (
+    'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
+)
 
 
 def create_app(config=None):
@@ -18,6 +21,15 @@ def create_app(config=None):
         app.config.update(config)
 
     CORS(app, resources={r'/api/*': {'origins': '*'}})
+
+    # The archive stopped growing when scraping did (2024-05), so a day at
+    # Vercel's edge costs no freshness and keeps repeat hits off the
+    # all-history queries. Only successes are cached, never an error.
+    @app.after_request
+    def cache_at_edge(response):
+        if request.method == 'GET' and response.status_code == 200:
+            response.headers['Cache-Control'] = CACHE_CONTROL
+        return response
 
     def feeds_for(time_period):
         if time_period not in VALID_TIME_PERIODS:

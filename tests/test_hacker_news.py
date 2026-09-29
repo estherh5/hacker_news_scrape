@@ -2872,3 +2872,41 @@ class TestUsersMostWords(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(len(users), 2)
+
+
+# Every successful GET is edge-cacheable; errors must never be
+class TestCacheHeaders(HackerNewsTestCase):
+    def test_success_is_cached_at_the_edge(self):
+        response = self.client.get(
+            '/api/hacker_news/stats/all/average_point_count')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get('Cache-Control'),
+            'public, max-age=3600, s-maxage=86400, '
+            'stale-while-revalidate=604800')
+
+    def test_errors_are_not_cached(self):
+        for path in ('/api/hacker_news/stats/year/top_posts',
+                '/api/hacker_news/stats/all/top_posts?count=0'):
+            response = self.client.get(path)
+
+            self.assertIn(response.status_code, (400, 404), path)
+            self.assertIsNone(response.headers.get('Cache-Control'), path)
+
+
+# Only allowlisted SQL can be formatted into the all-period queries
+class TestAllPeriodAllowlists(HackerNewsTestCase):
+    def test_unknown_keys_are_refused(self):
+        cases = (
+            (hacker_news.all_period_users, ('comment_count DESC', 5)),
+            (hacker_news.all_period_posts, ('1; DROP TABLE post', 5)),
+            (hacker_news.all_period_average, ('level',)),
+        )
+
+        for helper, args in cases:
+            session = models.Session()
+            try:
+                with self.assertRaises(KeyError, msg=helper.__name__):
+                    helper(session, *args)
+            finally:
+                session.close()
