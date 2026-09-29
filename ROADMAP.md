@@ -11,7 +11,8 @@ Committed doc, not scratch. Kept current by hand as work ships.
   branch `main`); before this, only `vercel --prod` deployed it, and a push produced no build.
   The first git build took the API down for ~5 minutes: `SQLAlchemy~=2.0` resolved to 2.1, whose
   default `postgresql://` driver is psycopg 3 (not installed), so every request 500'd. Production
-  was rolled back to the 2026-09-01 build, and `requirements.txt` now pins `SQLAlchemy~=2.0.0`.
+  was rolled back to the 2026-09-01 build, and `requirements.txt` now pins `SQLAlchemy~=2.0.0`
+  (4fc0ba8, not yet deployed — see the dated item under `## Next`).
 
 - **2026-09** **Heroku decommissioned.** The `hn-scrape` app, its `essential-0` Postgres add-on
   and its scheduler were destroyed on 2026-09-04 after three days of parallel running with zero
@@ -33,6 +34,13 @@ Committed doc, not scratch. Kept current by hand as work ships.
   at least one row and indexed into an empty result. 125 tests pass, up from 119.
 
 ## Next
+
+- [from 2026-09-30] **Deploy the SQLAlchemy pin (4fc0ba8) and promote it.** Its git build was
+  refused on 2026-09-29 by Vercel's Hobby daily deployment cap. Production is a manual rollback
+  to the 2026-09-01 build, so auto-assign is OFF: a new build will not take
+  `hn-api.crystalprism.io` until promoted. Redeploy HEAD (push, or `vercel --prod --yes`),
+  confirm `/api/hacker_news/stats/day/average_point_count` returns 200 on the deployment URL, then
+  `vercel promote <url> --yes`, which also turns auto-assign back on.
 
 - [security] **`.format` into `text()` SQL (Low, not injectable).** `hacker_news/hacker_news.py#all_period_users`, `#all_period_average`, `get_posts_*` format constants/allowlisted values (`count` is int-cast and bound). Fix: a dict allowlist to make the invariant local.
 
