@@ -9,6 +9,9 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 - **2026-09** **Pushes to `main` deploy.** The Vercel project is now git-connected (production
   branch `main`); before this, only `vercel --prod` deployed it, and a push produced no build.
+  The first git build took the API down for ~5 minutes: `SQLAlchemy~=2.0` resolved to 2.1, whose
+  default `postgresql://` driver is psycopg 3 (not installed), so every request 500'd. Production
+  was rolled back to the 2026-09-01 build, and `requirements.txt` now pins `SQLAlchemy~=2.0.0`.
 
 - **2026-09** **Heroku decommissioned.** The `hn-scrape` app, its `essential-0` Postgres add-on
   and its scheduler were destroyed on 2026-09-04 after three days of parallel running with zero

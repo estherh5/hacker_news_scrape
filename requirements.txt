@@ -7,4 +7,4 @@ gunicorn~=23.0
 psycopg2-binary~=2.9
 python-crontab~=3.2
 requests~=2.32
-SQLAlchemy~=2.0
+SQLAlchemy~=2.0.0
