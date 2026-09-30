@@ -7,6 +7,9 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-09** **SQLAlchemy pinned below 2.1 (4fc0ba8), deployed with the edge cache.** Production
+  serves `49bafb1` on `hn-api.crystalprism.io`, auto-assign back on; a repeat request answers
+  `x-vercel-cache: HIT`. Verified 2026-09-30.
 - **2026-09** **Security: SQL fragments allowlisted, all-history queries cached at the edge.**
   `all_period_users`, `all_period_posts` and `all_period_average` now take a key into
   `USER_ORDERS` / `POST_ORDERS` / `AVERAGES` in `hacker_news/hacker_news.py` instead of raw SQL,
@@ -43,15 +46,6 @@ Committed doc, not scratch. Kept current by hand as work ships.
   at least one row and indexed into an empty result. 125 tests pass, up from 119.
 
 ## Next
-
-- [from 2026-09-30] **Deploy the SQLAlchemy pin (4fc0ba8) and promote it.** Its git build was
-  refused on 2026-09-29 by Vercel's Hobby daily deployment cap. Production is a manual rollback
-  to the 2026-09-01 build, so auto-assign is OFF: a new build will not take
-  `hn-api.crystalprism.io` until promoted. Redeploy HEAD (push, or `vercel --prod --yes`),
-  confirm `/api/hacker_news/stats/day/average_point_count` returns 200 on the deployment URL, then
-  `vercel promote <url> --yes`, which also turns auto-assign back on. The same deploy carries the
-  edge-cache headers: request one endpoint twice and confirm the second answers
-  `x-vercel-cache: HIT`.
 
 ## Declined
 
