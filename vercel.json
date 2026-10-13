@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "git diff --quiet ${VERCEL_GIT_PREVIOUS_SHA:-HEAD^} HEAD -- ':(top)' ':(top,exclude).github/' ':(top,exclude)tasks/' ':(top,exclude,glob)**/*.md'",
   "functions": {
     "server.py": {
       "excludeFiles": "{tests/**,utils/tests.py,.venv/**,.venv-312/**,alembic/**,sample_data/**,**/*.md}"
