@@ -91,6 +91,10 @@ def has_database():
     return models.engine is not None
 
 
+class ServerError(Exception):
+    pass
+
+
 def fetch_item(item_id, session=None):
     """Fetch one item from the Hacker News Firebase API.
 
@@ -113,15 +117,13 @@ def _get_json(url, session):
                 timeout=REQUEST_TIMEOUT)
 
             if response.status_code >= 500:
-                raise requests.HTTPError(
-                    str(response.status_code) + ' from ' + url)
+                raise ServerError(str(response.status_code) + ' from ' + url)
 
             response.raise_for_status()
 
             return response.json()
 
-        except (requests.ConnectionError, requests.Timeout,
-                requests.HTTPError):
+        except (requests.ConnectionError, requests.Timeout, ServerError):
             if attempt == REQUEST_ATTEMPTS - 1:
                 raise
 
@@ -293,7 +295,8 @@ def scrape_loop():
 
             session.add(models.FeedPost(
                 comment_count=item.get('descendants', 0), feed_id=feed_id,
-                feed_rank=post['rank'], point_count=item.get('score', 0),
+                feed_rank=post['rank'], point_count=(0 if item.get('type') == 'job'
+                    else item.get('score', 0)),
                 post_id=post_id))
 
             for comment, level, parent_id, rank in post['comments']:

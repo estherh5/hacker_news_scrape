@@ -1,1 +1,1 @@
-{"id": 3, "type": "job", "title": "Test1", "url": "https://test2.com", "age_seconds": 86400, "kids": [103, 104]}
+{"id": 3, "type": "job", "score": 5, "title": "Test1", "url": "https://test2.com", "age_seconds": 86400, "kids": [103, 104]}
