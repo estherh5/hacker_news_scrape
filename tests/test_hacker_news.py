@@ -2,6 +2,9 @@ import json
 import os
 import re
 
+from datetime import datetime
+from sqlalchemy.sql import func
+
 from hacker_news import hacker_news, models
 from utils.tests import HackerNewsTestCase
 
@@ -2900,6 +2903,46 @@ class TestCacheHeaders(HackerNewsTestCase):
 
             self.assertIn(response.status_code, (400, 404), path)
             self.assertIsNone(response.headers.get('Cache-Control'), path)
+
+
+# Contraction halves split off by Postgres' parser never rank as words
+class TestWordFragments(HackerNewsTestCase):
+    def setUp(self):
+        super().setUp()
+
+        session = models.Session()
+        content = "Rust's crates isn't they're we've rustacean rustacean"
+        session.add(models.Comment(content=content,
+            created=datetime.now().isoformat(), id=999, level=0,
+            parent_comment=None, post_id=6,
+            total_word_count=len(content.split()), username='tester',
+            word_counts=func.to_tsvector('simple_english', content.lower())))
+        session.commit()
+        session.close()
+
+    def test_fragments_are_not_words(self):
+        response = self.client.get(
+            '/api/hacker_news/stats/all/comment_words?count=100')
+        words = [row['word'] for row in json.loads(
+            response.get_data(as_text=True))]
+
+        self.assertIn('rustacean', words)
+        for fragment in ('re', 've', 'isn'):
+            self.assertNotIn(fragment, words)
+
+
+# The newest snapshot's time, in UTC, for the dashboard's "as of" line
+class TestLastScrape(HackerNewsTestCase):
+    def test_returns_newest_feed_time(self):
+        response = self.client.get('/api/hacker_news/last_scrape')
+
+        session = models.Session()
+        newest = session.query(func.max(models.Feed.created)).scalar()
+        session.close()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.get_data(as_text=True)),
+            {'scraped_at': newest.isoformat() + '+00:00'})
 
 
 # Only allowlisted SQL can be formatted into the all-period queries

@@ -13,6 +13,7 @@ CACHE_CONTROL = (
 # scrape; only the all-history stats and single-item lookups stay long-lived.
 SHORT_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=3600'
 SHORT_CACHE_PERIODS = {'hour', 'day', 'week'}
+SHORT_CACHE_ENDPOINTS = {'last_scrape'}
 
 
 def create_app(config=None):
@@ -36,6 +37,7 @@ def create_app(config=None):
             period = (request.view_args or {}).get('time_period')
             response.headers['Cache-Control'] = (
                 SHORT_CACHE_CONTROL if period in SHORT_CACHE_PERIODS
+                or request.endpoint in SHORT_CACHE_ENDPOINTS
                 else CACHE_CONTROL
             )
         return response
@@ -44,6 +46,10 @@ def create_app(config=None):
         if time_period not in VALID_TIME_PERIODS:
             abort(404, description='Unknown time period')
         return hacker_news.get_feeds(time_period)
+
+    @app.get('/api/hacker_news/last_scrape')
+    def last_scrape():
+        return hacker_news.get_last_scrape()
 
     @app.get('/api/hacker_news/comment/<int:comment_id>')
     def comment(comment_id):

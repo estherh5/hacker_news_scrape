@@ -12,7 +12,10 @@ def client():
          mock.patch.object(
              server.hacker_news, 'get_average_point_count', return_value={}
          ), \
-         mock.patch.object(server.hacker_news, 'get_post', return_value={}):
+         mock.patch.object(server.hacker_news, 'get_post', return_value={}), \
+         mock.patch.object(
+             server.hacker_news, 'get_last_scrape', return_value={}
+         ):
         yield server.create_app({'TESTING': True}).test_client()
 
 
@@ -51,3 +54,9 @@ def test_check_db_size_exits_over_limit():
     with _size(401), pytest.raises(SystemExit) as e:
         management.check_db_size()
     assert e.value.code != 0
+
+
+def test_last_scrape_gets_short_cache(client):
+    r = client.get('/api/hacker_news/last_scrape')
+    assert r.status_code == 200
+    assert r.headers['Cache-Control'] == server.SHORT_CACHE_CONTROL

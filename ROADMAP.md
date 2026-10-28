@@ -7,6 +7,12 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-10** **`/api/hacker_news/last_scrape` and no more contraction halves in word stats.**
+  `get_last_scrape` returns the newest feed's time in UTC (short edge cache) for the dashboard's
+  "as of" line. `WORD_FRAGMENTS` drops `re`, `ve`, `doesn`, `us` and the other halves Postgres'
+  parser splits off at apostrophes from the comment and title word queries, at query time, so
+  stored vectors and `word_total` need no rebuild.
+
 - **2026-10** **Scraping restarted: hourly, from HN's official API, on GitHub Actions.**
   `hacker_news.py#scrape_loop` now reads `hacker-news.firebaseio.com/v0` (topstories, first 90,
   then each post's comment tree depth-first) instead of parsing the HTML pages. Timestamps are

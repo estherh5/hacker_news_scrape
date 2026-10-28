@@ -27,6 +27,15 @@ USER_AGENT = ('hacker_news_scrape '
     '(+https://github.com/estherh5/hacker_news_scrape)')
 MAX_RESULT_COUNT = 100
 
+# Postgres' parser splits "they're" into "they" and "re" and its English
+# stop list lacks the second halves, so they ranked among the top words.
+# One-letter halves (s, t, d, m) are already dropped by LENGTH(word) > 1.
+WORD_FRAGMENTS = [
+    're', 've', 'll', 'doesn', 'didn', 'isn', 'wasn', 'aren', 'weren',
+    'couldn', 'wouldn', 'shouldn', 'hasn', 'haven', 'hadn', 'mustn',
+    'needn', 'ain', 'us',
+]
+
 # The only SQL ever formatted into a text() query. Callers pass a key, never
 # the SQL itself, so an unknown key is a KeyError rather than a new query.
 USER_ORDERS = {
@@ -451,6 +460,22 @@ def get_feeds(time_period):
         session.close()
 
 
+def get_last_scrape():
+    # The newest snapshot's time, so the dashboard can say how fresh it is
+    if not has_database():
+        return jsonify({'scraped_at': None})
+
+    session = models.Session()
+
+    try:
+        created = session.query(func.max(models.Feed.created)).scalar()
+    finally:
+        session.close()
+
+    return jsonify({'scraped_at': created.replace(
+        tzinfo=timezone.utc).isoformat() if created else None})
+
+
 def all_period_post(session, post_id):
     """One post's details plus its best per-feed numbers over all history.
 
@@ -731,10 +756,12 @@ def get_most_frequent_comment_words(feed_ids):
                          ) comment_table$$
                 )
                WHERE LENGTH (word) > 1
+                 AND word <> ALL(:fragments)
             ORDER BY nentry DESC
                LIMIT :count;
             """),
             {'feed_id': feed_ids,
+            'fragments': WORD_FRAGMENTS,
             'count': count}
             ).fetchall()
 
@@ -750,11 +777,13 @@ def get_most_frequent_comment_words(feed_ids):
                         FROM ts_stat($$SELECT word_counts FROM comment$$)
                      ) merged
                WHERE LENGTH (word) > 1
+                 AND word <> ALL(:fragments)
             GROUP BY word
             ORDER BY SUM(nentry) DESC
                LIMIT :count;
             """),
-            {'count': count}
+            {'fragments': WORD_FRAGMENTS,
+            'count': count}
             ).fetchall()
 
     session.close()
@@ -999,10 +1028,12 @@ def get_most_frequent_title_words(feed_ids):
                 )
                WHERE word NOT IN ('ask', 'hn', 'show')
                  AND LENGTH (word) > 1
+                 AND word <> ALL(:fragments)
             ORDER BY nentry DESC
                LIMIT :count;
             """),
             {'feed_id': feed_ids,
+            'fragments': WORD_FRAGMENTS,
             'count': count}
             ).fetchall()
 
@@ -1016,10 +1047,12 @@ def get_most_frequent_title_words(feed_ids):
                 )
                WHERE word NOT IN ('ask', 'hn', 'show')
                  AND LENGTH (word) > 1
+                 AND word <> ALL(:fragments)
             ORDER BY nentry DESC
                LIMIT :count;
             """),
             {'feed_id': feed_ids,
+            'fragments': WORD_FRAGMENTS,
             'count': count}
             ).fetchall()
 
