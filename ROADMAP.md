@@ -7,6 +7,13 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-10** **An alert when no scrape has landed for 3 hours.** The workflow's flare step only
+  fires for runs that start, so a disabled schedule or an Actions outage reached nobody. An hourly
+  systemd timer on the VPS (`fleet-scripts/vps/hn-scrape-heartbeat.py`, at :45, outside both GitHub
+  and flare) reads `/api/hacker_news/last_scrape` and reports a `job` event to flare as app
+  `hn-scrape` when the newest feed is over 3 hours old or missing, or the endpoint can't be read.
+  Every stale hour lands in the same flare group.
+
 - **2026-10** **`/api/hacker_news/last_scrape` and no more contraction halves in word stats.**
   `get_last_scrape` returns the newest feed's time in UTC (short edge cache) for the dashboard's
   "as of" line. `WORD_FRAGMENTS` drops `re`, `ve`, `doesn`, `us` and the other halves Postgres'
@@ -73,10 +80,6 @@ Committed doc, not scratch. Kept current by hand as work ships.
   days) against the free plan's 0.5 GB, and ~21 CU-hours/month of the 100. Read
   `pg_database_size` and the project's compute usage; if storage is on course past ~400 MB, cut
   `retention.RETENTION_DAYS` or stop storing a `feed_comment` row for every feed.
-- **Alert when no scrape has landed for hours.** A run that never starts (schedule disabled,
-  Actions outage) reaches nobody: the workflow's flare step only fires for runs that start.
-  flare has no heartbeat check, so this needs either a flare feature or an external check on the
-  newest `feed.created`.
 
 ## Declined
 
