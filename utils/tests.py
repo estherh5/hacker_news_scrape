@@ -1,7 +1,9 @@
 import alembic.config
 import json
 import os
+import requests
 import testing.postgresql
+import time
 import unittest
 
 from datetime import date, datetime, timedelta
@@ -17,58 +19,50 @@ from server import app
 import management
 
 
-# Mock requests to Hacker News to test scrape function
+# Mock requests to the Hacker News Firebase API to test scrape function. The
+# fixtures under fixtures/firebase hold each item's age in "age_seconds" rather
+# than a fixed "time", so the seeded rows always fall in the same 'hour',
+# 'day', 'week' and 'all' periods whenever the suite runs.
 def mocked_requests_get(*args, **kwargs):
     class MockResponse:
-        def __init__(self, content, status_code):
-            self.content = content
+        def __init__(self, data, status_code):
+            self.data = data
             self.status_code = status_code
 
-    feed_urls = []
-    feed_pages = []
+        def json(self):
+            return self.data
 
-    post_urls = []
-    post_pages = []
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(str(self.status_code))
 
-    for i in range(1, 4):
-        feed_urls.append('https://news.ycombinator.com/news?p=' + str(i))
+    prefix = 'https://hacker-news.firebaseio.com/v0/'
+    url = args[0]
 
-        feed_page = 'fixtures/test-feed-page-' + str(i) + '.html'
+    assert url.startswith(prefix), 'Unexpected request to ' + url
 
-        with open(feed_page, 'r') as test_feed_page:
-            test_feed_page = test_feed_page.read()
+    name = url[len(prefix):-len('.json')]
 
-            feed_pages.append(test_feed_page.encode('utf-8'))
+    if name == 'topstories':
+        path = 'fixtures/firebase/topstories.json'
+    else:
+        path = 'fixtures/firebase/' + name.replace('/', '-') + '.json'
 
-        post_urls.append('https://news.ycombinator.com/item?id=' + str(i))
+    if not os.path.exists(path):
+        return MockResponse(None, 200)
 
-        post_page = 'fixtures/test-post-' + str(i) + '-page.html'
+    with open(path, 'r') as fixture:
+        data = json.load(fixture)
 
-        with open(post_page, 'r') as test_post_page:
-            test_post_page = test_post_page.read()
+    if isinstance(data, dict) and 'age_seconds' in data:
+        data['time'] = int(time.time()) - data.pop('age_seconds')
 
-        post_pages.append(test_post_page.encode('utf-8'))
-
-    post_urls.append('https://news.ycombinator.com/item?id=3&p=2')
-
-    post_page = 'fixtures/test-post-3-page-2.html'
-    with open(post_page, 'r') as test_post_page:
-        test_post_page = test_post_page.read()
-
-    post_pages.append(test_post_page.encode('utf-8'))
-
-    for i in range(len(feed_urls)):
-        if args[0] == feed_urls[i]:
-            return MockResponse(feed_pages[i], 200)
-
-    for i in range(len(post_urls)):
-        if args[0] == post_urls[i]:
-            return MockResponse(post_pages[i], 200)
+    return MockResponse(data, 200)
 
 
 # Create database tables and load initial data from fixtures and fake HN scrape
 # into test database
-@mock.patch('requests.get', side_effect=mocked_requests_get)
+@mock.patch('requests.Session.get', side_effect=mocked_requests_get)
 def initialize_test_database(postgresql, mock_get):
     db_port = postgresql.dsn()['port']
     db_host = postgresql.dsn()['host']

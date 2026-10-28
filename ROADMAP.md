@@ -49,8 +49,3 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Declined
 
-- **`scrape_comments`'s level-1 parent lookup ends `.limit(1).one()` and can legitimately match
-  zero rows**, which raises rather than returning nothing. Real, but on the scraper path only
-  and unreachable from any route. Left deliberately: repairing scraping is out of scope for this
-  codebase, which is maintained as a read-only archive of what was already collected. Revisit
-  only if scraping is ever restarted.

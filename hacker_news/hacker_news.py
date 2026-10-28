@@ -1,19 +1,27 @@
-import asyncio
 import json
 import os
 import requests
 import time
 
-from bs4 import BeautifulSoup, UnicodeDammit
+from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from flask import abort, jsonify, make_response, request
-from sqlalchemy import desc, text
+from sqlalchemy import desc, literal_column, text
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql import func
+from urllib.parse import urlparse
 
 from hacker_news import models
 
 REQUEST_TIMEOUT = 15
+REQUEST_ATTEMPTS = 3
+RETRY_BACKOFF = 1
+FETCH_WORKERS = 16
+POST_COUNT = 90
+FIREBASE_URL = 'https://hacker-news.firebaseio.com/v0/'
+USER_AGENT = ('hacker_news_scrape '
+    '(+https://github.com/estherh5/hacker_news_scrape)')
 MAX_RESULT_COUNT = 100
 
 # The only SQL ever formatted into a text() query. Callers pass a key, never
@@ -83,322 +91,265 @@ def has_database():
     return models.engine is not None
 
 
+def fetch_item(item_id, session=None):
+    """Fetch one item from the Hacker News Firebase API.
+
+    Returns the item dict, or None when the API answers null (an item that
+    does not exist). Connection errors, timeouts and 5xx responses are
+    retried with backoff; anything else raises.
+    """
+    session = session or requests.Session()
+
+    url = FIREBASE_URL + 'item/' + str(item_id) + '.json'
+
+    return _get_json(url, session)
+
+
+def _get_json(url, session):
+    for attempt in range(REQUEST_ATTEMPTS):
+        try:
+            response = session.get(
+                url, headers={'User-Agent': USER_AGENT},
+                timeout=REQUEST_TIMEOUT)
+
+            if response.status_code >= 500:
+                raise requests.HTTPError(
+                    str(response.status_code) + ' from ' + url)
+
+            response.raise_for_status()
+
+            return response.json()
+
+        except (requests.ConnectionError, requests.Timeout,
+                requests.HTTPError):
+            if attempt == REQUEST_ATTEMPTS - 1:
+                raise
+
+            time.sleep(RETRY_BACKOFF * 2 ** attempt)
+
+
+def fetch_snapshot():
+    """Fetch the first three pages of the front page with all comments.
+
+    Returns one dict per post, in rank order: {'rank', 'item', 'comments'},
+    where 'comments' lists (item, level, parent_id, rank) depth-first,
+    pre-order, following each item's kids order. parent_id is None when the
+    parent is the post itself.
+    """
+    session = requests.Session()
+
+    ids = _get_json(FIREBASE_URL + 'topstories.json', session) or []
+
+    ids = ids[:POST_COUNT]
+
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        def fetch(item_id):
+            return item_id, fetch_item(item_id, session)
+
+        posts = []
+
+        for rank, (item_id, item) in enumerate(pool.map(fetch, ids), 1):
+            # A null or deleted post has no title or link to store
+            if item and not item.get('deleted'):
+                posts.append({'rank': rank, 'item': item, 'comments': []})
+
+        # Walk every post's comment tree one depth at a time, fetching each
+        # depth concurrently across all posts
+        items = {}
+
+        frontier = [(post['item']['id'], kid) for post in posts
+            for kid in post['item'].get('kids', [])]
+
+        while frontier:
+            results = pool.map(fetch, [kid for _, kid in frontier])
+
+            next_frontier = []
+
+            for (_, kid), (_, item) in zip(frontier, results):
+                if item:
+                    items[kid] = item
+
+                    next_frontier.extend(
+                        (kid, child) for child in item.get('kids', []))
+
+            frontier = next_frontier
+
+    for post in posts:
+        post_id = post['item']['id']
+
+        # Iterative pre-order walk, so a deep thread cannot hit the recursion
+        # limit. Kids are pushed reversed to pop in their original order.
+        stack = [(kid, 0, None)
+            for kid in reversed(post['item'].get('kids', []))]
+
+        while stack:
+            kid, level, parent_id = stack.pop()
+
+            item = items.get(kid)
+
+            if not item:
+                continue
+
+            post['comments'].append(
+                (item, level, parent_id, len(post['comments']) + 1))
+
+            stack.extend((child, level + 1, kid)
+                for child in reversed(item.get('kids', [])))
+
+    return posts
+
+
+def to_utc(timestamp):
+    return datetime.fromtimestamp(timestamp, timezone.utc).replace(
+        tzinfo=None)
+
+
+def has_text(item):
+    return bool(item.get('text')) and not (
+        item.get('deleted') or item.get('dead'))
+
+
+def comment_text(item):
+    if item.get('dead'):
+        return '[flagged]'
+
+    if not has_text(item):
+        return '[deleted]'
+
+    soup = BeautifulSoup(item['text'], 'html.parser')
+
+    # HN separates paragraphs with bare <p> tags; without a break the last
+    # word of one paragraph fuses with the first of the next
+    for paragraph in soup.find_all('p'):
+        paragraph.insert_before('\n')
+
+    return soup.get_text().strip()
+
+
+def post_type(item):
+    title = item.get('title', '')
+
+    if item.get('type') == 'job':
+        return 'job'
+
+    if 'Show HN:' in title:
+        return 'show'
+
+    if 'Ask HN:' in title:
+        return 'ask'
+
+    return 'article'
+
+
 def scrape_loop():
-    # Connect to database
+    # Fetch everything before touching the database, so a failed fetch leaves
+    # no feed behind
+    snapshot = fetch_snapshot()
+
     session = models.Session()
-
-    # Add feed to database
-    new_feed = models.Feed()
-
-    session.add(new_feed)
-
-    session.commit()
-
-    feed_id = new_feed.id
-
-    # Create asynchronous tasks to scrape first three pages of Hacker News.
-    # Use a fresh loop rather than get_event_loop() so a second scrape in the
-    # same process does not inherit the closed loop from the first.
-    loop = asyncio.new_event_loop()
-
-    asyncio.set_event_loop(loop)
 
     try:
-        tasks = [
-            loop.create_task(scrape_page(1, feed_id, loop)),
-            loop.create_task(scrape_page(2, feed_id, loop)),
-            loop.create_task(scrape_page(3, feed_id, loop))
-            ]
+        new_feed = models.Feed()
 
-        # gather() re-raises the first task exception. asyncio.wait() would
-        # capture it inside the Task instead, so a scrape that failed on every
-        # page still reported success and left an empty feed behind.
-        loop.run_until_complete(asyncio.gather(*tasks))
+        session.add(new_feed)
 
-        # Comment scraping is queued by scrape_page as separate tasks; drain
-        # them before closing, or the loop can shut down mid-scrape
-        pending = asyncio.all_tasks(loop)
+        session.flush()
 
-        if pending:
-            loop.run_until_complete(asyncio.gather(*pending))
-    finally:
-        loop.close()
+        feed_id = new_feed.id
 
-        asyncio.set_event_loop(None)
+        post_ids = [post['item']['id'] for post in snapshot]
 
-    session.close()
+        comment_ids = [item['id'] for post in snapshot
+            for item, _, _, _ in post['comments']]
 
-    print('Scrape completed for first three pages of Hacker News.')
+        # One existence check per table
+        existing_posts = set(row[0] for row in session.execute(
+            text('SELECT id FROM post WHERE id = ANY(:ids)'),
+            {'ids': post_ids}))
 
-    return
+        existing_comments = set(row[0] for row in session.execute(
+            text('SELECT id FROM comment WHERE id = ANY(:ids)'),
+            {'ids': comment_ids}))
 
+        new_comments = []
 
-async def scrape_page(page, feed_id, loop):
-    # Connect to database
-    session = models.Session()
+        feed_comments = []
 
-    print('Scrape initiated for page ' + str(page) + ' of Hacker News.')
+        for post in snapshot:
+            item = post['item']
 
-    # Get current UTC time in seconds
-    now = int(datetime.now().timestamp())
+            post_id = item['id']
 
-    # Get HTML tree from feed page
-    feed_html = requests.get(
-        'https://news.ycombinator.com/news?p=' + str(page),
-        timeout=REQUEST_TIMEOUT,
-    )
+            if post_id not in existing_posts:
+                url = item.get('url')
 
-    feed_content = feed_html.content
+                session.add(models.Post(
+                    created=to_utc(item['time']), id=post_id,
+                    link=url or 'item?id=' + str(post_id),
+                    title=item['title'], type=post_type(item),
+                    username=item.get('by', ''),
+                    website=(urlparse(url).hostname or '').removeprefix(
+                    'www.') if url else ''))
 
-    feed_soup = BeautifulSoup(feed_content, 'html.parser')
+            session.add(models.FeedPost(
+                comment_count=item.get('descendants', 0), feed_id=feed_id,
+                feed_rank=post['rank'], point_count=item.get('score', 0),
+                post_id=post_id))
 
-    # Get all post rows from HTML tree
-    post_rows = feed_soup.find_all('tr', 'athing')
+            for comment, level, parent_id, rank in post['comments']:
+                comment_id = comment['id']
 
-    for post_row in post_rows:
-        # Get subtext row with additional post data
-        subtext_row = post_row.next_sibling
+                if comment_id not in existing_comments:
+                    content = comment_text(comment)
 
-        # Get post id
-        post_id = post_row.get('id')
+                    new_comments.append({
+                        'id': comment_id, 'content': content,
+                        'created': to_utc(comment['time']), 'level': level,
+                        'parent_comment': parent_id, 'post_id': post_id,
+                        'total_word_count': (
+                            len(content.split()) if has_text(comment) else 0),
+                        'username': comment.get('by', ''),
+                    })
 
-        # Check if post exists in database
-        post_exists = session.query(models.Post.id).filter_by(
-            id=post_id).scalar()
+                feed_comments.append(models.FeedComment(
+                    comment_id=comment_id, feed_id=feed_id, feed_rank=rank))
 
-        # Get core post data if it is not in database already
-        if not post_exists:
-            # Get UTC timestamp for post's posting time by subtracting the
-            # number of days/hours/minutes ago given on the webpage from the
-            # current UTC timestamp
-            time_unit = subtext_row.find('span', 'age').a.get_text().split()[1]
+        # Posts must exist before their comments, and comments before their
+        # feed links, which are only added once the comments are in
+        session.flush()
 
-            if 'day' in time_unit:
-                created = now - 86400 * int(subtext_row.find(
-                    'span', 'age').a.get_text().split()[0])
+        if new_comments:
+            # Pre-order keeps each parent ahead of its children. word_counts
+            # is NOT NULL, so insert an empty vector and fill them all in with
+            # the single UPDATE below. Deleted and flagged placeholders keep
+            # the empty vector, so '[deleted]' never counts as a word.
+            session.execute(
+                models.Comment.__table__.insert().values(
+                    word_counts=literal_column("''::tsvector")),
+                new_comments)
 
-            elif 'hour' in time_unit:
-                created = now - 3600 * int(subtext_row.find(
-                    'span', 'age').a.get_text().split()[0])
+            session.execute(text(
+                "UPDATE comment SET word_counts = "
+                "to_tsvector('simple_english', lower(content)) "
+                "WHERE id = ANY(:new_ids)"),
+                {'new_ids': [comment['id'] for comment in new_comments
+                    if comment['total_word_count']]})
 
-            else:
-                created = now - 60 * int(subtext_row.find(
-                    'span', 'age').a.get_text().split()[0])
-
-            created = time.strftime(
-                '%Y-%m-%d %H:%M', time.localtime(created))
-
-            # Get post's link
-            link_span = post_row.find('span', 'titleline').find('a')
-            link = link_span.get('href')
-
-            # Get post's title
-            title = link_span.get_text()
-
-            # Set post's type based on title
-            if 'Show HN:' in title:
-                type = 'show'
-            elif 'Ask HN:' in title:
-                type = 'ask'
-            else:
-                type = 'article'
-
-            # Get username of user who posted post or set as blank for job
-            # posting
-            if subtext_row.find('a', 'hnuser'):
-                username = subtext_row.find('a', 'hnuser').get_text()
-            else:
-                username = ''
-
-            # Get website that post is from or set as blank for ask posting
-            if post_row.find('span', 'sitestr'):
-                website = post_row.find('span', 'sitestr').get_text()
-            else:
-                website = ''
-
-            # Add post data to database
-            post = models.Post(created=created, id=post_id, link=link,
-                title=title, type=type, username=username, website=website)
-
-            session.add(post)
-
-        # Get post's comment count if it is listed (otherwise, set to 0)
-        if 'comment' in subtext_row.find_all(
-            href='item?id=' + post_id)[-1].get_text():
-                unicode_count = UnicodeDammit(subtext_row.find_all(
-                    href='item?id=' + post_id)[-1].get_text())
-                comment_count = unicode_count.unicode_markup.split()[0]
-        else:
-            comment_count = 0
-
-        # Get post's rank on feed page
-        feed_rank = post_row.find('span', 'rank').get_text()[:-1]
-
-        # Get post's score if it is listed (otherwise, post is job posting)
-        if subtext_row.find('span', 'score'):
-            point_count = subtext_row.find(
-                'span', 'score').get_text().split()[0]
-        else:
-            point_count = 0
-            type = 'job'
-
-        # Add feed-based post data to database
-        feed_post = models.FeedPost(comment_count=comment_count,
-            feed_id=feed_id, feed_rank=feed_rank, point_count=point_count,
-            post_id=post_id)
-
-        session.add(feed_post)
+        session.add_all(feed_comments)
 
         session.commit()
 
-        # Create asynchronous task to scrape post page for its comments
-        loop.create_task(scrape_post(post_id, feed_id, loop, None))
+    except Exception:
+        session.rollback()
 
-    return
+        raise
 
+    finally:
+        session.close()
 
-async def scrape_post(post_id, feed_id, loop, page_number):
-    # Connect to database
-    session = models.Session()
+    print('Scrape completed for first three pages of Hacker News.')
 
-    # Get current UTC time in seconds
-    now = int(datetime.now().timestamp())
-
-    # Get HTML tree from post's webpage, specifying page number if given
-    if page_number:
-        post_html = requests.get(
-            'https://news.ycombinator.com/item?id=' + str(post_id) + '&p=' +
-            str(page_number), timeout=REQUEST_TIMEOUT)
-
-    else:
-        post_html = requests.get(
-            'https://news.ycombinator.com/item?id=' + str(post_id),
-            timeout=REQUEST_TIMEOUT,
-        )
-
-    post_content = post_html.content
-
-    post_soup = BeautifulSoup(post_content, 'html.parser')
-
-    # If post page contains a "More" link to more comments, create asynchronous
-    # task to scrape that page for its comments
-    if (post_soup.find('a', 'morelink')):
-        page_number = post_soup.find('a', 'morelink').get(
-            'href').split('&p=')[1]
-
-        loop.create_task(scrape_post(post_id, feed_id, loop, page_number))
-
-    # Get all comment rows from HTML tree
-    comment_rows = post_soup.select('tr.athing.comtr')
-
-    # Set starting comment feed rank to 0
-    comment_feed_rank = 0
-
-    for comment_row in comment_rows:
-        # Get comment id
-        comment_id = comment_row.get('id')
-
-        # Check if comment exists in database
-        comment_exists = session.query(models.Comment.id).filter_by(
-            id=comment_id).scalar()
-
-        # Get core comment data if it is not in database already
-        if not comment_exists:
-            # Hacker News wraps comment text in an element carrying the
-            # 'commtext' class. Match on the class rather than the tag: it was
-            # a <span> historically and is a <div> now, and matching the tag
-            # meant every comment fell through to the flagged branch below.
-            comment_text = comment_row.find(
-                'div', 'comment').find(class_='commtext')
-
-            if comment_text:
-                # The reply link is a sibling of this element, not part of it,
-                # so the text needs no trailing-word surgery
-                comment_content = comment_text.get_text().strip()
-
-                total_word_count = len(comment_content.split())
-
-            # Otherwise, comment is flagged, so get flagged message as text
-            # and strip trailing whitespace
-            else:
-                comment_content = comment_row.find(
-                    'div', 'comment').get_text().strip()
-
-                total_word_count = 0
-
-            # Get UTC timestamp for comment's posting time by subtracting
-            # the number of days/hours/minutes ago given on the webpage from
-            # the current UTC timestamp
-            comment_time_unit = comment_row.find(
-                'span', 'age').a.get_text().split()[1]
-
-            if 'day' in comment_time_unit:
-                comment_created = now - 86400 * int(comment_row.find(
-                    'span', 'age').a.get_text().split()[0])
-
-            elif 'hour' in comment_time_unit:
-                comment_created = now - 3600 * int(comment_row.find(
-                    'span', 'age').a.get_text().split()[0])
-
-            else:
-                comment_created = now - 60 * int(comment_row.find(
-                    'span', 'age').a.get_text().split()[0])
-
-            comment_created = time.strftime(
-                '%Y-%m-%d %H:%M', time.localtime(comment_created))
-
-            # Get comment's level in tree by getting indentation width
-            # value divided by value of one indent (40px)
-            level = int(comment_row.find(
-                'td', 'ind').contents[0].get('width')) / 40
-
-            # Set parent comment as blank if comment is the top-level
-            # comment
-            if level == 0:
-                parent_comment = None
-
-            # Otherwise, get preceding comment in comment tree
-            else:
-                parent_comment = session.query(models.Comment).with_entities(
-                    models.Comment.id).join(models.FeedComment).filter(
-                    models.Comment.level == (level - 1)).filter(
-                    models.FeedComment.feed_id == feed_id).filter(
-                    models.Comment.post_id == post_id).order_by(
-                    models.FeedComment.feed_rank).limit(1).one()[0]
-
-            # Get username of user who posted comment
-            try:
-                comment_username = comment_row.find('a', 'hnuser').get_text()
-
-            except AttributeError:
-                comment_username = ''
-
-            # Add scraped comment data to database
-            comment = models.Comment(content=comment_content,
-                created=comment_created, id=comment_id, level=level,
-                parent_comment=parent_comment, post_id=post_id,
-                total_word_count=total_word_count, username=comment_username,
-                word_counts=func.to_tsvector('simple_english',
-                comment_content.lower()))
-
-            session.add(comment)
-
-        # Increment comment feed rank to get current comment's rank
-        comment_feed_rank += 1
-
-        # Add feed-based comment data to database
-        feed_comment = models.FeedComment(comment_id=comment_id,
-            feed_id=feed_id, feed_rank=comment_feed_rank)
-
-        session.add(feed_comment)
-
-    session.commit()
-
-    # Print message if there are no more pages of comments to scrape
-    if not post_soup.find('a', 'morelink'):
-        print('Post ' + str(post_id) + ' and its comments scraped')
-
-    return
+    return feed_id
 
 
 def get_comment(comment_id):

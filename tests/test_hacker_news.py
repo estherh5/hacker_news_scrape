@@ -10,7 +10,7 @@ from utils.tests import HackerNewsTestCase
 class TestComment(HackerNewsTestCase):
     def test_comment_get(self):
         # Arrange
-        comment_id = '1'
+        comment_id = '101'
 
         # Act
         response = self.client.get(
@@ -445,9 +445,11 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
             isinstance(comment['post_id'], int) for comment in comments), True)
 
         # Ensure each comment's total word count is the length of the words in
-        # the comment's content
+        # the comment's content (zero for the '[deleted]' and '[flagged]'
+        # placeholders that stand in for removed comments)
         self.assertEqual(all(
-            comment['total_word_count'] == len(comment['content'].split())
+            comment['total_word_count'] == (0 if comment['content'] in (
+            '[deleted]', '[flagged]') else len(comment['content'].split()))
             for comment in comments), True)
 
         # Ensure each comment's username is a string
@@ -500,9 +502,11 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
             isinstance(comment['post_id'], int) for comment in comments), True)
 
         # Ensure each comment's total word count is the length of the words in
-        # the comment's content
+        # the comment's content (zero for the '[deleted]' and '[flagged]'
+        # placeholders that stand in for removed comments)
         self.assertEqual(all(
-            comment['total_word_count'] == len(comment['content'].split())
+            comment['total_word_count'] == (0 if comment['content'] in (
+            '[deleted]', '[flagged]') else len(comment['content'].split()))
             for comment in comments), True)
 
         # Ensure each comment's username is a string
@@ -555,9 +559,11 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
             isinstance(comment['post_id'], int) for comment in comments), True)
 
         # Ensure each comment's total word count is the length of the words in
-        # the comment's content
+        # the comment's content (zero for the '[deleted]' and '[flagged]'
+        # placeholders that stand in for removed comments)
         self.assertEqual(all(
-            comment['total_word_count'] == len(comment['content'].split())
+            comment['total_word_count'] == (0 if comment['content'] in (
+            '[deleted]', '[flagged]') else len(comment['content'].split()))
             for comment in comments), True)
 
         # Ensure each comment's username is a string
@@ -610,9 +616,11 @@ class TestCommentsHighestWordCount(HackerNewsTestCase):
             isinstance(comment['post_id'], int) for comment in comments), True)
 
         # Ensure each comment's total word count is the length of the words in
-        # the comment's content
+        # the comment's content (zero for the '[deleted]' and '[flagged]'
+        # placeholders that stand in for removed comments)
         self.assertEqual(all(
-            comment['total_word_count'] == len(comment['content'].split())
+            comment['total_word_count'] == (0 if comment['content'] in (
+            '[deleted]', '[flagged]') else len(comment['content'].split()))
             for comment in comments), True)
 
         # Ensure each comment's username is a string
@@ -1928,7 +1936,7 @@ class TestPostTypes(HackerNewsTestCase):
 
         # Assert
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(post_types), 4)
+        self.assertEqual(len(post_types), 3)
 
         # Ensure each type is one of the post types ('article', 'job', 'ask',
         # 'show')
