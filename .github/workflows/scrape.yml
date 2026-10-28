@@ -30,32 +30,48 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Scrape Hacker News
+        id: scrape
+        timeout-minutes: 15
         run: python management.py scrape_hn
 
       - name: Prune old feeds
+        id: prune
+        timeout-minutes: 3
         run: python management.py prune_db
 
       - name: Check database size
+        id: size
+        timeout-minutes: 3
         run: python management.py check_db_size
 
       - name: Report failure to flare
-        if: failure()
+        if: failure() || cancelled()
         env:
           FLARE_KEY: ${{ secrets.FLARE_KEY }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RUN_ID: ${{ github.run_id }}
+          SCRAPE_OUTCOME: ${{ steps.scrape.outcome }}
+          PRUNE_OUTCOME: ${{ steps.prune.outcome }}
+          SIZE_OUTCOME: ${{ steps.size.outcome }}
         run: |
           jq -n \
-            --arg message "hn-scrape workflow run $RUN_ID failed" \
             --arg url "$RUN_URL" \
-            '{kind: "job", name: "Error", message: $message, url: $url,
-              environment: "production", context: {job: "hn-scrape"}}' \
+            --arg run_id "$RUN_ID" \
+            --arg scrape "$SCRAPE_OUTCOME" \
+            --arg prune "$PRUNE_OUTCOME" \
+            --arg size "$SIZE_OUTCOME" \
+            '{kind: "job", name: "Error",
+              message: "hn-scrape scheduled run failed", url: $url,
+              environment: "production",
+              context: {job: "hn-scrape", run_id: $run_id,
+                        scrape: $scrape, prune: $prune, size: $size}}' \
             > flare-body.json
           curl -sS -m 10 -X POST https://flare.crystalprism.io/api/ingest \
             -H 'content-type: application/json' \
             -H "x-flare-key: $FLARE_KEY" \
+            --fail-with-body \
             --data-binary @flare-body.json \
-            || echo "flare report failed (ignored)"
+            || echo "::warning::flare report was not delivered (curl exit $?)"
 
       # GitHub disables schedules on public repos after 60 days without
       # activity; re-enabling the workflow resets that clock.
