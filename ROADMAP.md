@@ -7,6 +7,21 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-10** **Scraping restarted: hourly, from HN's official API, on GitHub Actions.**
+  `hacker_news.py#scrape_loop` now reads `hacker-news.firebaseio.com/v0` (topstories, first 90,
+  then each post's comment tree depth-first) instead of parsing the HTML pages. Timestamps are
+  exact, every reply records its true parent (the HTML parser attached replies to the first
+  comment one level up, and crashed in `.limit(1).one()` when there was none), and a run writes
+  in one transaction or not at all; a snapshot under `MIN_POSTS` raises instead of committing an
+  empty feed. `.github/workflows/scrape.yml` runs at :07 every hour: scrape, `prune_db` (the
+  8-day rollup, unscheduled since Heroku went away), `check_db_size` (fails over 400 MB, against
+  Neon free's 0.5 GB cap). Any failed, timed-out or cancelled step reports to flare as app
+  `hn-scrape`, and the run re-enables its own schedule so GitHub's 60-day inactivity rule cannot
+  switch it off. Hour/day/week API responses now cache for 5 minutes at the edge; `all` keeps the
+  1-day cache. A live run takes ~45s for 90 posts and ~13k comments. Website is now the bare
+  hostname (no `github.com/<user>` form), and job posts are typed `job` (the old parser stored
+  them as `article`).
+
 - **2026-09** **SQLAlchemy pinned below 2.1 (4fc0ba8), deployed with the edge cache.** Production
   serves `49bafb1` on `hn-api.crystalprism.io`, auto-assign back on; a repeat request answers
   `x-vercel-cache: HIT`. Verified 2026-09-30.
@@ -46,6 +61,16 @@ Committed doc, not scratch. Kept current by hand as work ships.
   at least one row and indexed into an empty result. 125 tests pass, up from 119.
 
 ## Next
+
+- [from 2026-10-30] [needs data] **Re-measure Neon after 48h of hourly scraping.** The steady
+  state was estimated at ~370-400 MB (one `feed_comment` row per comment per hourly feed, kept 8
+  days) against the free plan's 0.5 GB, and ~21 CU-hours/month of the 100. Read
+  `pg_database_size` and the project's compute usage; if storage is on course past ~400 MB, cut
+  `retention.RETENTION_DAYS` or stop storing a `feed_comment` row for every feed.
+- **Alert when no scrape has landed for hours.** A run that never starts (schedule disabled,
+  Actions outage) reaches nobody: the workflow's flare step only fires for runs that start.
+  flare has no heartbeat check, so this needs either a flare feature or an external check on the
+  newest `feed.created`.
 
 ## Declined
 
