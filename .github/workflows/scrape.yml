@@ -17,10 +17,10 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -32,16 +32,22 @@ jobs:
       - name: Scrape Hacker News
         id: scrape
         timeout-minutes: 15
+        env:
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: python management.py scrape_hn
 
       - name: Prune old feeds
         id: prune
         timeout-minutes: 3
+        env:
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: python management.py prune_db
 
       - name: Check database size
         id: size
         timeout-minutes: 3
+        env:
+          DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
         run: python management.py check_db_size
 
       - name: Report failure to flare

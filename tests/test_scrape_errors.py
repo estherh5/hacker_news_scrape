@@ -57,3 +57,36 @@ class ScrapeFailureVisibilityTest(HackerNewsTestCase):
             second = hacker_news.scrape_loop()
 
         self.assertNotEqual(first, second)
+
+
+class EmptySnapshotTest(HackerNewsTestCase):
+    """An API that answers but returns nothing must fail, not commit an
+    empty Feed."""
+
+    def _run(self, get):
+        before = feed_count()
+
+        with mock.patch.object(hacker_news, 'MIN_POSTS', 60), \
+                mock.patch('requests.Session.get', side_effect=get):
+            with self.assertRaises(RuntimeError):
+                hacker_news.scrape_loop()
+
+        self.assertEqual(feed_count(), before)
+
+    def test_empty_topstories_raises_and_persists_nothing(self):
+        def get(url, *args, **kwargs):
+            if url.endswith('topstories.json'):
+                return mock.Mock(status_code=200, json=lambda: [])
+
+            return mocked_requests_get(url, *args, **kwargs)
+
+        self._run(get)
+
+    def test_all_null_items_raises_and_persists_nothing(self):
+        def get(url, *args, **kwargs):
+            if url.endswith('topstories.json'):
+                return mock.Mock(status_code=200, json=lambda: [1, 2, 3])
+
+            return mock.Mock(status_code=200, json=lambda: None)
+
+        self._run(get)

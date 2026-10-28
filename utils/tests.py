@@ -230,6 +230,9 @@ def initialize_test_database(postgresql, mock_get):
 
 # Create factory instance of Postgresql class that has cached database for
 # testing
+# The mocked front page has 3 posts; production requires MIN_POSTS (60)
+hacker_news.MIN_POSTS = 1
+
 class PostgresqlFactory(DatabaseFactory):
     target_class = testing.postgresql.Postgresql
 

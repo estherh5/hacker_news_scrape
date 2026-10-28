@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from flask import abort, jsonify, make_response, request
+from requests.adapters import HTTPAdapter
 from sqlalchemy import desc, literal_column, text
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql import func
@@ -19,6 +20,8 @@ REQUEST_ATTEMPTS = 3
 RETRY_BACKOFF = 1
 FETCH_WORKERS = 16
 POST_COUNT = 90
+# The front page is 90 posts, so a near-empty snapshot means the API failed
+MIN_POSTS = 60
 FIREBASE_URL = 'https://hacker-news.firebaseio.com/v0/'
 USER_AGENT = ('hacker_news_scrape '
     '(+https://github.com/estherh5/hacker_news_scrape)')
@@ -140,6 +143,10 @@ def fetch_snapshot():
     """
     session = requests.Session()
 
+    adapter = HTTPAdapter(pool_maxsize=FETCH_WORKERS)
+
+    session.mount('https://', adapter)
+
     ids = _get_json(FIREBASE_URL + 'topstories.json', session) or []
 
     ids = ids[:POST_COUNT]
@@ -247,6 +254,10 @@ def scrape_loop():
     # Fetch everything before touching the database, so a failed fetch leaves
     # no feed behind
     snapshot = fetch_snapshot()
+
+    if len(snapshot) < MIN_POSTS:
+        raise RuntimeError('Snapshot has only ' + str(len(snapshot)) +
+            ' posts (minimum ' + str(MIN_POSTS) + '); refusing to store it')
 
     session = models.Session()
 
