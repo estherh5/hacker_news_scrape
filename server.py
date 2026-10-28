@@ -9,6 +9,10 @@ VALID_TIME_PERIODS = {'hour', 'day', 'week', 'all'}
 CACHE_CONTROL = (
     'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'
 )
+# Scraping is live again, so the rolling windows must refresh with each hourly
+# scrape; only the all-history stats and single-item lookups stay long-lived.
+SHORT_CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=3600'
+SHORT_CACHE_PERIODS = {'hour', 'day', 'week'}
 
 
 def create_app(config=None):
@@ -22,13 +26,18 @@ def create_app(config=None):
 
     CORS(app, resources={r'/api/*': {'origins': '*'}})
 
-    # The archive stopped growing when scraping did (2024-05), so a day at
-    # Vercel's edge costs no freshness and keeps repeat hits off the
-    # all-history queries. Only successes are cached, never an error.
+    # Hour/day/week stats change with every scrape, so they get a short edge
+    # TTL; the all-history stats and single post/comment lookups barely move
+    # and keep a day at Vercel's edge. Only successes are cached, never an
+    # error.
     @app.after_request
     def cache_at_edge(response):
         if request.method == 'GET' and response.status_code == 200:
-            response.headers['Cache-Control'] = CACHE_CONTROL
+            period = (request.view_args or {}).get('time_period')
+            response.headers['Cache-Control'] = (
+                SHORT_CACHE_CONTROL if period in SHORT_CACHE_PERIODS
+                else CACHE_CONTROL
+            )
         return response
 
     def feeds_for(time_period):

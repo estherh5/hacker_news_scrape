@@ -64,27 +64,28 @@ def initialize_database():
     return
 
 
-def schedule_hourly_scrape():
-    # Initiate CronTab instance for current user
-    user = getpass.getuser()
-    cron = CronTab(user)
+DB_SIZE_LIMIT_MB = 400
 
-    # Create hourly job to scrape Hacker News website
-    job = cron.new(
-        command='export WORKON_HOME=~/.virtualenvs; ' +
-        'VIRTUALENVWRAPPER_PYTHON=/usr/local/bin/python3; ' +
-        'source /usr/local/bin/virtualenvwrapper.sh; ' +
-        'workon ' + os.environ['VIRTUAL_ENV_NAME'] + '; ' +
-        'source ~/.virtualenvs/' + os.environ['VIRTUAL_ENV_NAME'] +
-        '/bin/postactivate; python ' + os.path.abspath(__file__) + ' scrape_hn'
+
+def check_db_size():
+    session = models.Session()
+    try:
+        size_bytes = session.execute(
+            text('SELECT pg_database_size(current_database())')
+        ).scalar()
+    finally:
+        session.close()
+
+    size_mb = size_bytes / (1024 * 1024)
+    print(f'Database size: {size_mb:.1f} MB (limit {DB_SIZE_LIMIT_MB} MB)')
+
+    if size_mb > DB_SIZE_LIMIT_MB:
+        raise SystemExit(
+            f'Database is {size_mb:.1f} MB, above the '
+            f'{DB_SIZE_LIMIT_MB} MB limit.'
         )
-    job.minute.on(0)
 
-    cron.write()
-
-    print('Hourly scrape scheduled for Hacker News.')
-
-    return
+    return size_mb
 
 
 def backup_database():
@@ -160,11 +161,11 @@ def main():
         'action',
         choices=[
             'init_db',
-            'sched_scrape',
             'scrape_hn',
             'backup_db',
             'sched_backup',
             'prune_db',
+            'check_db_size',
         ],
         help='management action to run',
     )
@@ -172,10 +173,10 @@ def main():
 
     if args.action == 'init_db':
         initialize_database()
-    elif args.action == 'sched_scrape':
-        schedule_hourly_scrape()
     elif args.action == 'scrape_hn':
         hacker_news.scrape_loop()
+    elif args.action == 'check_db_size':
+        check_db_size()
     elif args.action == 'backup_db':
         backup_database()
     elif args.action == 'sched_backup':

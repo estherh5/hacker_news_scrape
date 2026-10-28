@@ -14,7 +14,7 @@ Hacker News Scrape is a data scraper tool that uses [Requests](http://docs.pytho
 4. Set the following environment variables for the API:
     * `FLASK_APP=server:app`
     * `ENV_TYPE` for the environment status (set this to `Dev` for testing or `Prod` for live)
-    * `VIRTUAL_ENV_NAME` for the name of your virtual environment (e.g., `hn`); this is used to schedule automatic data scrapes of the Hacker News main feed with crontab
+    * `VIRTUAL_ENV_NAME` for the name of your virtual environment (e.g., `hn`); this is used to schedule automatic database backups with crontab
     * `PATH` for the path to the executable files that will run when automatic database backups are performed via crontab; you should append the path to your PostgreSQL directory here (e.g., `$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin`)
     * `DB_CONNECTION` for the [database URL](http://docs.sqlalchemy.org/en/latest/core/engines.html#database-urls) to connect to your database via SQLAlchemy ORM (i.e., `<dialect+driver://username:password@host:port/database>`). Heroku's standard `DATABASE_URL` is also supported. If neither variable is set, sample data is returned for the endpoints called from the front-end web app.
     * `DB_NAME` for the name of your database
@@ -26,7 +26,7 @@ Hacker News Scrape is a data scraper tool that uses [Requests](http://docs.pytho
     * `BACKUP_DIR` for the directory where your database backups are stored locally
 5. Load the initial database structure by running `alembic upgrade head`.
     * Note that you might need to add `PYTHONPATH=.` to the beginning of the command if Alembic can't find your module (i.e., `PYTHONPATH=. alembic upgrade head`).
-6. Initialize the database by running `python management.py init_db` to create a custom text dictionary for use in statistic functions, and schedule hourly scrapes of Hacker News (every hour on the half hour) by running `python management.py sched_scrape`.
+6. Initialize the database by running `python management.py init_db` to create a custom text dictionary for use in statistic functions. Scraping runs hourly (at minute 7) from the GitHub Actions workflow `.github/workflows/scrape.yml`, which also prunes and checks the database size; it needs the `DB_CONNECTION` and `FLARE_KEY` repository secrets, and can be run on demand via workflow_dispatch.
 7. Set up weekly backups for the database by running `python management.py sched_backup`.
 8. Start the development server with `flask run --debug`. For production,
    use the included Gunicorn command from `Procfile`.

@@ -1,0 +1,66 @@
+name: scrape
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DB_CONNECTION: ${{ secrets.DB_CONNECTION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Scrape Hacker News
+        run: python management.py scrape_hn
+
+      - name: Prune old feeds
+        run: python management.py prune_db
+
+      - name: Check database size
+        run: python management.py check_db_size
+
+      - name: Report failure to flare
+        if: failure()
+        env:
+          FLARE_KEY: ${{ secrets.FLARE_KEY }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg message "hn-scrape workflow run $RUN_ID failed" \
+            --arg url "$RUN_URL" \
+            '{kind: "job", name: "Error", message: $message, url: $url,
+              environment: "production", context: {job: "hn-scrape"}}' \
+            > flare-body.json
+          curl -sS -m 10 -X POST https://flare.crystalprism.io/api/ingest \
+            -H 'content-type: application/json' \
+            -H "x-flare-key: $FLARE_KEY" \
+            --data-binary @flare-body.json \
+            || echo "flare report failed (ignored)"
+
+      # GitHub disables schedules on public repos after 60 days without
+      # activity; re-enabling the workflow resets that clock.
+      - name: Keep schedule alive
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/scrape.yml/enable
