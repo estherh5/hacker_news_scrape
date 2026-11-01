@@ -75,11 +75,12 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Next
 
-- [from 2026-10-30] [needs data] **Re-measure Neon after 48h of hourly scraping.** The steady
-  state was estimated at ~370-400 MB (one `feed_comment` row per comment per hourly feed, kept 8
-  days) against the free plan's 0.5 GB, and ~21 CU-hours/month of the 100. Read
-  `pg_database_size` and the project's compute usage; if storage is on course past ~400 MB, cut
-  `retention.RETENTION_DAYS` or stop storing a `feed_comment` row for every feed.
-
 ## Declined
+
+- **Cutting `retention.RETENTION_DAYS` or per-feed `feed_comment` rows to save Neon storage**
+  (settled 2026-11-01 by measurement). The re-measure after hourly scraping read
+  `pg_database_size` at 118 MB against the free plan's 0.5 GB and the ~370-400 MB estimate:
+  `comment` 44 MB, `word_total` 42 MB, `feed_comment` 17 MB. Even with `feed_comment` doubling to
+  its full 8-day window, storage stays far under ~400 MB, so no cut is needed. Compute usage was
+  not read.
 
