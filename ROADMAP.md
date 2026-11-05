@@ -7,6 +7,12 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-11** **Scrapes land hourly again, dispatched from the Mac.** GitHub delivered only 2-5 of
+  the 24 daily `schedule` runs after the October restart (5-8h apart), so the heartbeat fired
+  nearly every hour. launchd `com.esther.hn-scrape-kick` (`fleet-scripts/hn-scrape-kick.sh`, at
+  :12) dispatches `scrape.yml` with the local `gh` login whenever the newest feed is 50+ minutes
+  old; the GitHub schedule stays as the fallback for when the Mac is off.
+
 - **2026-10** **An alert when no scrape has landed for 3 hours.** The workflow's flare step only
   fires for runs that start, so a disabled schedule or an Actions outage reached nobody. An hourly
   systemd timer on the VPS (`fleet-scripts/vps/hn-scrape-heartbeat.py`, at :45, outside both GitHub
