@@ -7,7 +7,7 @@
     }
   },
   "git": {
-    "deploymentEnabled": { "flare/*": false, "dependabot/**": false }
+    "deploymentEnabled": false
   },
   "headers": [
     {
