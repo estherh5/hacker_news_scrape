@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from sqlalchemy import func, text
@@ -628,3 +628,149 @@ class SessionLifecycleTest(HackerNewsTestCase):
 
             self.assertFalse(session.in_transaction(),
                 '%s%r left its session in a transaction' % (name, args))
+
+
+class ThinOldFeedsTest(HackerNewsTestCase):
+    """Old feeds drop redundant comment links but never a comment's last."""
+
+    def _seed(self):
+        """Three feeds in one closed 3-hour bucket, three days back.
+
+        Comment 960 is in all three feeds, 961 only in the first, 962 in the
+        first two. Feed 22 is the bucket's latest, so it is the keeper.
+        """
+        session = models.Session()
+
+        try:
+            base = session.get(models.Comment, 8)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            day = (now - timedelta(days=3)).replace(hour=0, minute=0,
+                second=0, microsecond=0)
+            bucket = day + timedelta(hours=6)
+
+            for offset in range(3):
+                session.add(models.Feed(id=20 + offset,
+                    created=bucket + timedelta(hours=offset, minutes=10)))
+
+            # A feed two hours old sits inside the 'day' window
+            session.add(models.Feed(id=23, created=now - timedelta(hours=2)))
+
+            for cid in (960, 961, 962):
+                session.add(models.Comment(id=cid, content='c%d' % cid,
+                    created=bucket, level=0, parent_comment=None,
+                    post_id=base.post_id, total_word_count=1,
+                    username='thin', word_counts=func.to_tsvector(
+                        'simple_english', 'thin')))
+
+            links = [(960, 20), (960, 21), (960, 22), (961, 20), (962, 20),
+                     (962, 21), (960, 23)]
+
+            for cid, fid in links:
+                session.add(models.FeedComment(comment_id=cid, feed_id=fid,
+                    feed_rank=1))
+
+            session.commit()
+
+            return now
+        finally:
+            session.close()
+
+    def _links(self, session, feed_id):
+        return {row.comment_id for row in session.query(
+            models.FeedComment).filter_by(feed_id=feed_id)}
+
+    def test_keeper_keeps_all_links_and_others_drop_duplicates(self):
+        self._seed()
+
+        self.assertGreaterEqual(retention.thin_old_feeds(), 2)
+
+        session = models.Session()
+
+        try:
+            self.assertEqual(self._links(session, 22), {960})
+            self.assertEqual(self._links(session, 20), {961})
+            self.assertEqual(self._links(session, 21), {962})
+            self.assertEqual(self._links(session, 23), {960})
+
+            self.assertTrue(all(session.get(models.Feed, f).links_thinned
+                                for f in (20, 21, 22)))
+            self.assertFalse(session.get(models.Feed, 23).links_thinned)
+        finally:
+            session.close()
+
+    def test_every_comment_keeps_a_link(self):
+        self._seed()
+
+        session = models.Session()
+
+        try:
+            before = {row[0] for row in session.query(
+                models.FeedComment.comment_id).distinct()}
+        finally:
+            session.close()
+
+        retention.thin_old_feeds()
+
+        session = models.Session()
+
+        try:
+            after = {row[0] for row in session.query(
+                models.FeedComment.comment_id).distinct()}
+        finally:
+            session.close()
+
+        self.assertEqual(before, after)
+
+    def test_is_idempotent(self):
+        self._seed()
+
+        retention.thin_old_feeds()
+
+        self.assertEqual(retention.thin_old_feeds(), 0)
+
+    def test_open_bucket_is_left_alone(self):
+        now = self._seed()
+
+        # One hour after the bucket closes past the cutoff is fine; one
+        # minute before it, nothing in the bucket may be touched yet
+        session = models.Session()
+
+        try:
+            bucket_end = session.get(models.Feed, 20).created.replace(
+                minute=0) + timedelta(hours=3)
+        finally:
+            session.close()
+
+        early = bucket_end + timedelta(hours=retention.THIN_AFTER_HOURS,
+            minutes=-1)
+
+        retention.thin_old_feeds(now=early)
+
+        session = models.Session()
+
+        try:
+            self.assertFalse(session.get(models.Feed, 20).links_thinned)
+            self.assertEqual(self._links(session, 20), {960, 961, 962})
+        finally:
+            session.close()
+
+    def test_prune_after_thinning_rolls_each_comment_up_once(self):
+        now = self._seed()
+
+        retention.thin_old_feeds()
+
+        # Age out every feed, the seeded ones included. Pins would hold these
+        # few comments back as record holders, which is not under test here.
+        with mock.patch.object(retention, 'update_pins', return_value=set()):
+            retention.prune_aged_feeds(now=now + timedelta(days=30))
+
+        session = models.Session()
+
+        try:
+            total = session.get(models.UserTotal, 'thin')
+
+            self.assertEqual(total.comment_count, 3)
+            self.assertEqual(session.query(models.Comment).filter(
+                models.Comment.id.in_([960, 961, 962])).count(), 0)
+        finally:
+            session.close()

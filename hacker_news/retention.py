@@ -25,6 +25,12 @@ from hacker_news import hacker_news, models
 # longest window is 'week' (7 days); the extra day is slack.
 RETENTION_DAYS = 8
 
+# Past the 'day' window (plus an hour of slack), only one feed per bucket
+# keeps its full set of comment links; the rest drop every link that another
+# feed also holds. See thin_old_feeds.
+THIN_AFTER_HOURS = 25
+THIN_BUCKET_HOURS = 3
+
 
 def merge_feed_rollups(session, feed_id):
     """Fold one feed's feed_post rows into feed_summary and post_stat.
@@ -350,3 +356,86 @@ def prune_aged_feeds(now=None):
             session.close()
 
     return pruned
+
+
+def thin_old_feeds(now=None):
+    """Drop redundant comment links from feeds past the 'day' window.
+
+    Hourly scraping links each comment to every feed it appears in, about
+    ten of them, and those links were most of the database. Once a feed is
+    older than THIN_AFTER_HOURS, the latest feed in each THIN_BUCKET_HOURS
+    bucket keeps all its links; every other feed deletes the links that some
+    other feed also holds.
+
+    The load-bearing rule: a comment's LAST link is never deleted. The delete
+    only removes a link while another one exists, so every comment stays in
+    the 'week' window exactly as before, and prune_aged_feeds still finds it
+    as an orphan when the feed holding its last link ages out. Only the
+    'week' averages move, because they weight a comment by how many feeds
+    it is linked to.
+
+    Only closed buckets (entirely older than the cutoff) are touched, so the
+    keeper cannot change after the fact. Returns the number of feeds thinned.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    cutoff = now - timedelta(hours=THIN_AFTER_HOURS)
+
+    session = models.Session()
+
+    try:
+        rows = session.execute(text("""
+            WITH binned AS (
+                SELECT id, created, rolled_up, links_thinned,
+                       date_trunc('day', created) +
+                       floor(extract(hour FROM created) / :bucket) *
+                       make_interval(hours => :bucket) AS bucket
+                  FROM feed
+            ), ranked AS (
+                SELECT id, rolled_up, links_thinned, bucket,
+                       row_number() OVER (PARTITION BY bucket
+                                          ORDER BY created DESC, id DESC)
+                           AS position
+                  FROM binned
+            )
+            SELECT id, position = 1 AS keeper
+              FROM ranked
+             WHERE NOT rolled_up
+               AND NOT links_thinned
+               AND bucket + make_interval(hours => :bucket) <= :cutoff
+          ORDER BY id
+        """), {'bucket': THIN_BUCKET_HOURS, 'cutoff': cutoff}).fetchall()
+    finally:
+        session.close()
+
+    thinned = 0
+
+    for feed_id, keeper in rows:
+        session = models.Session()
+
+        try:
+            if not keeper:
+                session.execute(text("""
+                    DELETE FROM feed_comment fc
+                     WHERE fc.feed_id = :feed_id
+                       AND EXISTS (SELECT 1 FROM feed_comment other
+                                    WHERE other.comment_id = fc.comment_id
+                                      AND other.feed_id != :feed_id)
+                """), {'feed_id': feed_id})
+
+            session.query(models.Feed).filter(
+                models.Feed.id == feed_id).update(
+                {'links_thinned': True}, synchronize_session=False)
+
+            session.commit()
+
+            thinned += 0 if keeper else 1
+        except Exception:
+            session.rollback()
+
+            raise
+        finally:
+            session.close()
+
+    return thinned

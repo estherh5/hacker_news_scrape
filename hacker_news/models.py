@@ -38,6 +38,10 @@ class Feed(Base):
     # makes the prune job exactly-once.
     rolled_up = Column(Boolean, default=False, nullable=False,
         server_default='false')
+    # Set once retention.thin_old_feeds has dropped this feed's redundant
+    # comment links, so later runs skip it.
+    links_thinned = Column(Boolean, default=False, nullable=False,
+        server_default='false')
 
 
 class Post(Base):

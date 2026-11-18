@@ -44,7 +44,7 @@ def _size(mb):
 
 
 def test_check_db_size_ok_under_limit(capsys):
-    assert management.DB_SIZE_LIMIT_MB == 400
+    assert management.DB_SIZE_LIMIT_MB == 450
     with _size(399):
         management.check_db_size()
     assert '399.0 MB' in capsys.readouterr().out

@@ -7,6 +7,16 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Shipped
 
+- **2026-11** **Old feeds keep only the comment links nothing else holds.** Once the Mac made
+  scraping truly hourly, the 8-day window held ~210 feeds of ~10k links each, `feed_comment`
+  reached 233 MB and `check_db_size` failed at 400.1 MB on 2026-11-18. `retention.thin_old_feeds`
+  (run by `prune_db`, migration `a3c6e8f20d15` adds `feed.links_thinned`) leaves feeds younger
+  than 25 hours alone, keeps every link of the latest feed in each 3-hour bucket, and deletes the
+  rest of an old feed's links only where another feed still links that comment, so no comment
+  leaves the 'week' window and pruning still rolls each one up exactly once. Only 'week' averages
+  move, since they weight a comment by its link count. Links 2.15M -> 837k; database 400 -> 226 MB
+  after a one-off `VACUUM FULL feed_comment`. The size check now fails over 450 MB.
+
 - **2026-11** **Scrapes land hourly again, dispatched from the Mac.** GitHub delivered only 2-5 of
   the 24 daily `schedule` runs after the October restart (5-8h apart), so the heartbeat fired
   nearly every hour. launchd `com.esther.hn-scrape-kick` (`fleet-scripts/hn-scrape-kick.sh`, at
@@ -83,10 +93,7 @@ Committed doc, not scratch. Kept current by hand as work ships.
 
 ## Declined
 
-- **Cutting `retention.RETENTION_DAYS` or per-feed `feed_comment` rows to save Neon storage**
-  (settled 2026-11-01 by measurement). The re-measure after hourly scraping read
-  `pg_database_size` at 118 MB against the free plan's 0.5 GB and the ~370-400 MB estimate:
-  `comment` 44 MB, `word_total` 42 MB, `feed_comment` 17 MB. Even with `feed_comment` doubling to
-  its full 8-day window, storage stays far under ~400 MB, so no cut is needed. Compute usage was
-  not read.
+- **Cutting `retention.RETENTION_DAYS` to save Neon storage.** The 'week' window needs 7 days
+  plus slack, and cutting to 7 would save only ~30 MB. The 2026-11-01 measurement that also
+  declined thinning `feed_comment` predated truly hourly scrapes; thinning shipped 2026-11 instead.
 

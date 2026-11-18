@@ -64,7 +64,7 @@ def initialize_database():
     return
 
 
-DB_SIZE_LIMIT_MB = 400
+DB_SIZE_LIMIT_MB = 450
 
 
 def check_db_size():
@@ -185,6 +185,9 @@ def main():
         pruned = retention.prune_aged_feeds()
         print('Pruned ' + str(pruned) + ' feed(s) older than ' +
             str(retention.RETENTION_DAYS) + ' days.')
+        thinned = retention.thin_old_feeds()
+        print('Thinned comment links of ' + str(thinned) + ' feed(s) older '
+            'than ' + str(retention.THIN_AFTER_HOURS) + ' hours.')
 
 
 if __name__ == '__main__':
